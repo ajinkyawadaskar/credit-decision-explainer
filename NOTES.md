@@ -114,3 +114,39 @@ necessary but NOT sufficient. A reason can be perfectly traceable to a real SHAP
 feature and still be an unusable adverse action reason. The mapper needs a notion
 of which (feature, direction) pairs are *citable*, separate from which are merely
 *true*. Flagged before the module was written, not after.
+## Eval scaffolding — DeepEval/Gemini risk retired
+
+Flagged in planning that DeepEval defaults to OpenAI for LLM-judged metrics
+while we chose Gemini. Checked it early instead of at eval time: deepeval
+4.1.10 ships a **native `deepeval.models.GeminiModel`**, so no `DeepEvalBaseLLM`
+wrapper is needed. The remaining trap is that the default is still OpenAI —
+every built-in metric must be passed `model=judge` explicitly or it will fail
+on a missing OPENAI_API_KEY. Written into the metrics.py spec so it can't be
+forgotten.
+
+Versions pinned in this env: deepeval 4.1.10, langgraph 1.2.11,
+langchain-google-genai 4.3.5, google-genai 2.19.0.
+
+## Eval cases — two of my own generated cases were wrong, caught before labeling
+
+Generated 10 candidates from real test records, then checked whether each case
+actually tests what its name claims. Two did not:
+
+1. **ADV-02 "insufficient_drivers" was measuring nothing.** I selected the
+   declined applicant with the fewest positive SHAP drivers — but the minimum
+   across all declines was **8**, because nearly every feature nudges the score
+   a little. A case meant to test "does the agent pad to four reasons when the
+   record only supports two" was handing it eight. Fixed by counting drivers
+   above a 0.10 materiality floor instead; the new record has **3**, which
+   actually creates the squeeze.
+
+2. **ADV-03 duplicated STD-01.** Both selected test row 96 (P(bad)=0.9353) —
+   the citability trap picked the highest-probability qualifying record, which
+   was already the highest-probability record overall. 10 cases, 9 unique
+   records. Fixed by excluding already-used rows; ADV-03 is now row 61,
+   P(bad)=0.8778, `credit_history=A31` with SHAP **+0.8236** as the #2 driver.
+   That is a much sharper trap than the original anyway.
+
+Lesson worth keeping: an eval case named after a failure mode does not
+necessarily *exercise* that failure mode. Both defects would have silently
+inflated the final numbers.
