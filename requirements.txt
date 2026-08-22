@@ -1,0 +1,15 @@
+# Runtime deps only. Pinned from the versions actually tested locally,
+# not hand-written. deepeval is dev-only (heavy) and excluded.
+# langgraph/langchain ship now so graph.py needs no redeploy when it lands.
+
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+pydantic==2.13.4
+pandas==3.0.5
+numpy==2.4.6
+scikit-learn==1.9.0
+xgboost==3.2.0
+shap==0.51.0
+langgraph==1.2.11
+langchain-google-genai==4.3.5
+python-dotenv==1.2.3

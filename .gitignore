@@ -6,7 +6,8 @@ __pycache__/
 data/*.csv
 data/*.data
 data/*.zip
-models/*.json
+# models/xgb_credit.json is deliberately TRACKED — Railway builds from the repo
+# and there is no training step at deploy time, so the artifact must ship with it.
 models/*.pkl
 .ipynb_checkpoints/
 .deepeval*

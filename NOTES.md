@@ -183,3 +183,38 @@ Real lesson: I nearly wrote "verified API matches batch" on the strength of a
 payload I typed from memory. Serving/training skew is a genuine risk with
 XGBoost native categoricals, so the check was worth doing properly — the
 dtype-restoration loop in `api.py::decision` is what makes it pass.
+## Deploy prep — the model artifact was gitignored
+
+`.gitignore` had `models/*.json`, which is the normal instinct (don't commit
+build output). But Railway builds from the repo and there is no training step
+at deploy time, so the container would have booted with no model and crashed on
+startup. Caught by listing what git actually tracks before deploying rather
+than after. The model is 326KB — now deliberately tracked, with a comment in
+.gitignore explaining why so nobody "fixes" it later.
+
+## Deploy prep — three of my version pins were wrong
+
+Hand-wrote requirements.txt from memory and got pandas (guessed 2.3.4, actually
+**3.0.5**), numpy (2.3.5 vs 2.4.6), and python-dotenv wrong. A pandas major
+version is not a small miss. Regenerated the file programmatically from
+`importlib.metadata` so the pins are the versions actually tested, not the
+versions I believed were installed. Never hand-write a lockfile.
+
+## Deploy prep — clean-room test, and what it does NOT prove
+
+Copied only git-tracked files to a scratch dir, built a fresh venv from
+requirements.txt alone, and booted with railway.json's exact startCommand.
+Result: `/health` 200, and `/decision` returned **P(bad)=0.9353** with the same
+four drivers in the same order as the dev environment. So there is no hidden
+dependency on the dev venv.
+
+Two honest caveats:
+1. The clean room is still macOS arm64 on the same uv interpreter, which has
+   the hand-copied libomp from step 1. It therefore does **not** validate the
+   libomp story. Railway runs Linux, where the manylinux xgboost wheel links
+   libgomp normally — that is reasoning, not evidence, until the deploy runs.
+2. First attempt "failed" with an empty log and I nearly went debugging the
+   app. The app was fine; my test harness backgrounded uvicorn in a subshell
+   that never wrote its log. Worth remembering that a failed smoke test can be
+   the harness, and the fix is to run it in the foreground and read the error
+   before theorising.
