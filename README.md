@@ -1,243 +1,154 @@
-# Credit Decision Explainer Agent
+# Credit Decision Explainer
 
-**An XGBoost credit model whose adverse action reasons are provably traceable to
-real SHAP attributions — enforced by a deterministic validator, not by trusting
-the language model.**
-
-<!-- TODO(Ajinkya): 30-second demo GIF goes HERE, above the fold. -->
-<!-- Record: POST a declining applicant -> reasons appear -> point at the SHAP -->
-<!-- value each one traces to. Then show a validation rejection if you can. -->
+**A credit model that explains its own loan denials — and a checker that catches the AI when it makes an explanation up.**
 
 ![Demo](docs/demo.gif)
 
-**Live API:** [https://web-production-7b272.up.railway.app](https://web-production-7b272.up.railway.app/health) · [Architecture](docs/architecture.md) · [What didn't work](#what-didnt-work)
+**Try it live:** [web-production-7b272.up.railway.app](https://web-production-7b272.up.railway.app/health) · [How it's built](docs/architecture.md) · [What went wrong](#what-went-wrong)
 
 ---
 
-## The problem
+## Why this exists
 
-When a lender denies credit, ECOA and FCRA require them to state the *specific
-principal reasons*. Vague or wrong reasons are a compliance failure.
+If a bank turns you down for a loan, US law (ECOA and FCRA) says they have to tell you *why* — the specific reasons, not vague ones. That letter is called an **adverse action notice**.
 
-The obvious build — feed model output to an LLM, ask for reasons — fails in a
-way that is very hard to catch. LLMs write fluent, plausible, well-structured
-denial reasons that are **not true of this applicant**:
+The tempting way to build this is: show the model's output to an AI, ask it to write the letter. That fails in a way that's genuinely hard to spot. Language models write fluent, confident, professional-sounding reasons that simply **aren't true of the person being denied**.
 
-> given: `Length of requested credit term: 45`
-> written: *"your 45-month term, combined with your **limited employment history**
-> and **recent credit inquiries**, ..."*
+Here's the actual failure mode:
 
-Employment history wasn't a driver for that applicant. Credit inquiries aren't
-even a feature in this dataset. Two fabricated adverse action reasons, in a
-legal document, invisible to the recipient.
+> **What the system knew:** `Length of requested credit term: 45 months`
+>
+> **What the AI wrote:** *"your 45-month term, combined with your **limited employment history** and **recent credit inquiries**..."*
 
-**This project makes that structurally impossible rather than unlikely.**
+That person's employment history had nothing to do with it. Credit inquiries aren't even something this system tracks. The AI invented two reasons for denying someone credit — in a legal document, and the person receiving it would have no way to know.
 
-## The approach
+**This project makes that impossible by design, instead of just unlikely.**
 
-```
-decide -> attribute -> SELECT (deterministic) -> render (LLM) -> VERIFY (deterministic)
-```
+## How it works
 
-The LLM decides nothing. Reasons are *selected* by a pure function from real
-SHAP values; the LLM only *renders* them; a deterministic validator can reject
-its output; and when it does, the system falls back to the deterministic text.
-The LLM is an enhancement, never a dependency.
+Five steps. The AI is only involved in step four, and step five double-checks it.
 
-See [docs/architecture.md](docs/architecture.md) for the full diagram.
+| Step | What happens | Who does it |
+|---|---|---|
+| 1 | Score the applicant — how risky are they? | XGBoost model |
+| 2 | Break that score into per-feature contributions | SHAP |
+| 3 | **Pick** which contributions can legally be cited | Plain code, no AI |
+| 4 | Write those into readable sentences | Gemini |
+| 5 | **Check** every sentence against step 3 | Plain code, no AI |
+
+The key idea: **the AI never decides anything.** By the time it runs, the decision is made and the reasons are already chosen. Its only job is wording. If it adds anything that wasn't in the list, step 5 rejects it and the system falls back to plain, blunt, correct text.
+
+Most projects that combine AI with explainability let the model *generate* the reasons. That means nothing downstream can tell a real reason from a convincing invention. Splitting "choose" from "word it" is what makes checking possible at all.
+
+**A note on SHAP:** the model gives one number — "89% likely to default." That's useless for a letter. SHAP splits that number into how much each individual fact pushed it up or down: overdrawn checking account +0.79, loan size +0.81, and so on. Those pushes are what become reasons.
 
 ## Results
 
-### Model — measured
+### Does the model actually predict anything?
 
-| Metric | Value |
-|---|---|
-| ROC AUC (held-out, n=200) | **0.8046** |
-| ROC AUC across 5 splits | **0.8089 ± 0.0220**, range [0.7725, 0.8399] |
-| PR AUC | 0.6827 (base rate 0.300) |
-| Accuracy @ threshold 0.5 | 0.7800 |
-| **Recall on the decline class** | **0.52** |
+| Measure | Result | What it means |
+|---|---|---|
+| ROC AUC | **0.8046** | 0.5 is coin-flip, 1.0 is perfect |
+| Same, across 5 different data splits | **0.8089 ± 0.0220** | range 0.7725 – 0.8399 |
+| PR AUC | 0.6827 | vs 0.300 for a useless model |
+| Accuracy | 0.7800 | at the 50% cutoff |
+| **Catches risky applicants** | **52%** | ← the number that matters |
 
-Single-split numbers on 1,000 rows are unreliable, so the distribution is
-reported alongside the point estimate. A 0.01 "improvement" here is noise.
+Two things worth being upfront about:
 
-Decline-class recall of 0.52 is reported prominently because it is the number a
-credit risk team would actually care about, and it says this model is not
-deployable as-is without threshold work driven by cost asymmetry.
+**Any single number here is unreliable.** On 1,000 rows, just changing which rows land in the test set swings the score by 0.07. So the spread is reported next to the average. A "0.01 improvement" on this dataset is noise, not progress.
 
-### Reason generation — deterministic layer, measured
+**It only catches about half the bad risks.** That's the real weakness. Accuracy of 78% sounds fine until you notice 70% of applicants are good anyway. A lender would care about that 52%, and fixing it means choosing the cutoff based on what a missed default actually costs versus a wrongly-rejected customer — a business decision, not a modelling one.
+
+### Does the explanation layer hold up?
 
 | Check | Result |
 |---|---|
-| SHAP additivity (base + Σshap == model log-odds) | **PASS, 200/200 rows** |
-| Feature coverage in the mapping table | **17/17** |
-| Features suppressed as having no lawful reason | 7 |
-| Declines producing zero reasons | **0 / 46** |
-| **Reasons citing a feature absent from that applicant's SHAP output** | **0** |
-| **Reasons citing a feature that argued toward approval** | **0** |
-| Deterministic across repeated calls | yes |
+| SHAP math verified correct | **200 / 200 applicants** |
+| Every feature has a decision about it | **17 / 17** |
+| Features blocked as never-citable | 7 |
+| Denials with no reason given | **0 / 46** |
+| **Reasons citing something that wasn't a factor** | **0** |
+| **Reasons citing something that helped the applicant** | **0** |
+| Same input, same output every time | yes |
 
-### Traceability metric — validated against known-bad input
+Those last two zeros are the point of the whole project.
 
-`TraceabilityMetric` is deterministic set membership at threshold 1.0 — one
-untraceable reason fails the whole case.
+### Does it work end to end, with the AI?
 
-| Input | Score |
+Across 10 test cases (5 designed to trip it up), using Gemini 3.6 Flash:
+
+| Measure | Result |
 |---|---|
-| 10/10 honest cases | **1.00 (pass)** |
-| Phantom feature (not in explanation) | 0.00 fail |
-| Prohibited-basis feature | 0.00 fail |
-| Wrong-direction citation | 0.00 fail |
-| Empty output on a DECLINE | **0.00 fail** |
-| Mixed (1 real, 1 fabricated) | 0.50 fail |
+| **Cases where every reason was legitimate** | **10 / 10** |
+| Times the checker rejected the AI | 0 / 10 |
+| Times it fell back to plain text | 0 / 10 |
+| **Reasons lost when the AI merged two bullets** | **1 of 8 denials** |
+| Speed (typical / worst) | **13s / 34s** |
+| Two AI-judged quality scores | **couldn't measure — hit free-tier limit** |
 
-Empty output scoring 0.00 matters: an agent that says nothing is trivially
-"100% traceable", and a naive metric would reward silence.
+The hardest test case passed: an applicant where the biggest legitimate-looking factor is one we deliberately block, and the AI never sneaked it back in.
 
-### End-to-end with the LLM — pending
+### Four honest caveats on that 10/10
 
-Measured over the 10 labelled cases (5 adversarial), Gemini 3.6 Flash:
+**1. The checker has never actually caught a real lie.** It's been tested against 12 fake bad inputs that I wrote by hand, and it caught all of them. But across 10 real runs the AI behaved itself, so the rejection path never fired for real. That's evidence the AI behaved — not proof the checker works when it counts.
 
-| Metric | Value |
-|---|---|
-| **Traceability == 1.00** | **10 / 10 (100%)** |
-| Mean traceability | 1.000 |
-| Validator rejections | 0 / 10 |
-| Fallback to deterministic text | 0 / 10 (0%) |
-| Reasons lost to prose merging | **1 / 8 declines** |
-| p50 / p95 latency | **13.0s / 33.7s** |
-| Answer relevancy (Gemini judge) | 1.00 on n=1 — **quota-blocked** |
-| Faithfulness (Gemini judge) | **not measured — quota-blocked** |
+**2. The checker only knows about things that exist.** It spots the AI misusing a real feature. It does *not* spot the AI inventing something from scratch. I tested 8 made-up phrases: it caught "employment history", "job type", and "housing situation", but missed **"recent credit inquiries", "bankruptcy filing", "collection account", "debt-to-income ratio"**, and **"payment history"** — which are exactly the phrases an AI would reach for. **This is the biggest known hole.**
 
-Every generated reason traced to a real adverse SHAP driver for that applicant,
-including ADV-03, where `credit_history` is suppressed as uncitable and the
-model never reintroduced it.
+**3. Nothing checks for reasons going missing.** In one case the system picked 4 reasons and the AI wrote 3, quietly merging two that shared similar wording. Everything it printed was true — one just vanished. Legally, dropping a real reason is arguably worse than adding a fake one, and the traceability score still came out a perfect 1.00.
 
-**Three honest caveats on that 100%:**
+**4. Two of the three quality metrics never ran.** Google's free tier allows 20 AI requests, and one run burns that almost immediately. Both metrics are wired correctly — they fail on billing, not on code.
 
-1. **Zero rejections means the validator's reject path was never exercised by
-   real model output.** It is verified against 12 hand-built adversarial inputs,
-   not against a live hallucination. A clean run is evidence the LLM behaved,
-   not proof the guard would catch it.
-2. **The prose gate is closed-world.** It detects misattribution to features
-   that exist in the dataset. An invented concept mapping to *no* feature —
-   "recent credit inquiries", "prior bankruptcy", "debt-to-income ratio" —
-   has no alias to match and passes. 5 of 8 such probes were missed. This is
-   the main known gap.
-3. **Omission is not validated.** In ADV-02 the model merged two reasons that
-   share the same text into one bullet, emitting 3 for 4 selected reasons.
-   Every reason shown was true; one simply vanished. Under Reg B, losing a
-   principal reason is arguably worse than adding a spurious one.
+That failed run taught me something anyway. With the extra metrics running, **5 of 8 cases fell back to plain text.** That looks alarming — like the checker rejected most of the AI's work. It didn't. Google was rate-limiting us. Right now the system can't tell "the safety net caught a lie" apart from "the API is throttled," which is a real gap in the logging. The clean 0% above comes from the un-throttled run.
 
-**4. The two LLM-judged built-ins are not meaningfully measured.** The Gemini
-free tier allows 20 `generateContent` requests; the graph's own render call plus
-two judged metrics per case exhausts it after roughly one case. Answer relevancy
-returned 1.00 on a single case — a sample of one is not a result — and
-faithfulness never completed. Both are wired correctly and fail on quota, not on
-code. This is a billing limit, not a finding.
+**It's also too slow for real use.** 34 seconds at worst, and almost all of that is waiting on the AI — the non-AI parts take about 30 milliseconds. A real deployment would send the plain-text notice immediately and improve the wording in the background.
 
-That run also demonstrated the telemetry problem worth fixing: with the judges
-enabled, **5 of 8 declines fell back to deterministic text** — not because the
-validator rejected anything, but because the graph's own LLM calls were being
-rate-limited. `used_fallback=True` currently cannot distinguish "the safety net
-caught a hallucination" from "the API is throttled." The clean 0% fallback
-figure above comes from the run without judges, where no rate limiting occurred.
+## Decisions I made, and what I rejected
 
-**Latency is too high for a synchronous credit decision** at p95 33.7s. The
-deterministic path is ~30ms; effectively all of it is the LLM. Serving this for
-real means rendering asynchronously and returning the deterministic notice
-immediately.
+**1. Threw away three pieces of data on purpose.** The dataset includes sex, age, and nationality. It's illegal to base a credit decision on any of them. I could have used them and just hidden them from the explanation — but then the model would still be deciding on them and I'd only be concealing it. So they're removed before training. It cost nothing: 0.8046 accuracy without them.
+*Where this stops short:* it prevents using those facts directly. It doesn't prevent stand-ins — housing or job type may still quietly correlate with them. Catching that needs a proper fairness audit, which I didn't do.
 
-## Decisions & tradeoffs
+**2. Didn't split categories into separate columns.** The standard trick (one-hot encoding) turns "checking account status" into four separate columns, which then produces four separate explanation values you'd have to glue back together. Keeping them whole means one fact = one explanation = one reason. Accuracy was the same either way — this was purely about keeping explanations readable.
 
-**1. Dropped three features as ECOA prohibited bases — before training, not after.**
-German Credit ships `personal_status_sex`, `foreign_worker`, and `age_years`.
-Filtering them at the *explanation* layer would be worse than useless: the model
-would still decide on them, we'd just be hiding it. Rejected that; dropped them
-at load time. Cost in AUC: none measurable (0.8046 on 17 features).
-*Limitation:* this addresses disparate **treatment**, not disparate **impact** —
-proxies like housing and job may still correlate with protected class. A proper
-fairness audit is out of scope and logged in `IDEAS.md`.
+**3. Let plain code choose the reasons, and the AI only word them.** The rejected alternative is what most people build: hand everything to the AI and ask for reasons. It's unverifiable by construction — there's nothing to check the answer against. Separating the two steps is what creates something to check.
 
-**2. Native categorical features instead of one-hot encoding.**
-One-hot shatters a single concept across dummy columns, so `checking_status`
-becomes four SHAP values that must be re-aggregated before they mean anything.
-Native categoricals keep one feature = one SHAP value = one reason code. This
-was an interpretability decision, not a performance one — accuracy was
-comparable either way.
+**4. Blocked bad reason mappings instead of forcing them.** "Loan purpose" is what you want the money for — it isn't collateral. Labelling it "collateral not sufficient" would read perfectly well and would be a made-up claim. A wrong-but-believable reason is worse than no reason, because the person receiving it can't argue with it. Seven features are blocked entirely.
 
-**3. Reason *selection* is deterministic; only *rendering* is delegated to the LLM.**
-The rejected alternative — let the LLM read SHAP output and produce reasons — is
-the industry-standard build and is unverifiable by construction. Splitting
-selection from rendering is what makes the validator meaningful: there is a
-ground truth to check against.
+**5. When in doubt, send the boring version.** If the checker rejects the AI's wording and retries run out, the applicant gets plain, blunt, correct text. Worse writing, same legal accuracy. A credit system that returns nothing because an AI vendor is down isn't a credit system.
 
-**4. Suppress uncitable reasons rather than remap them.**
-`purpose` is what a loan is *for*, not collateral. Mapping it to "value or type
-of collateral not sufficient" would read plausibly and invent a security-interest
-claim the feature doesn't support. A wrong-but-plausible reason code is worse
-than none, because the applicant cannot falsify it. Seven features are suppressed
-outright.
+## What went wrong
 
-**5. Fail closed, to deterministic text.**
-When the validator rejects the LLM's prose and retries are exhausted, the
-applicant receives the blunt deterministic reason text. Lower quality prose,
-same legal correctness. A service that returns nothing when Gemini is down is
-not a credit system.
+Full log in [NOTES.md](NOTES.md). The ones worth knowing:
 
-## What didn't work
+### The model wanted to deny people for paying their bills on time
 
-Full running log in [NOTES.md](NOTES.md). The ones worth repeating:
+This looked like a bug and wasn't. Applicants marked *"all credits paid back properly"* were being pushed toward **denial**. The data genuinely says so: that group defaulted **57.1%** of the time, versus **17.1%** for people with troubled credit histories. (A known quirk of this dataset — likely who ends up applying in the first place.)
 
-**The model wanted to deny people for paying their bills on time.**
-`credit_history = A31` ("all credits at this bank paid duly") pushed *toward*
-decline, mean SHAP +0.61 — and the data backs it up: that group defaulted at
-**57.1%**, versus **17.1%** for "critical account / other credits existing."
+So the maths was right and the reason was unusable. **You cannot send someone a letter saying "you were denied because you have no missed payments."**
 
-The attribution was exact and the reason was unusable. You cannot mail someone
-*"you were denied because you have no delinquencies."*
+This became the central idea of the project: **being able to trace a reason back to real evidence isn't enough — it also has to be a reason you're allowed to give.** The system needs to know the difference between *true* and *citable*, and it now does.
 
-This forced the central design insight: **SHAP-traceable is necessary but not
-sufficient.** A reason can be mathematically perfect and legally uncitable. The
-mapper needed a notion of *citable* separate from *true*.
+### My own test harness nearly reported a lie that never happened
 
-**My eval harness would have reported a hallucination that never happened.**
-Case ground truth stored only the top 6 adverse drivers, but the mapper
-suppresses 7 features and reaches rank 8 to fill four slots. Four test records
-would have scored an honest reason as fabricated.
+The tests stored each applicant's top 6 factors as the source of truth. But because 7 features are blocked, the system sometimes reaches down to the 8th to fill four slots. Four applicants would have had a perfectly honest reason flagged as fabricated.
 
-The worst class of eval bug: not one that misses a failure, but one that
-*invents* one. The natural fix — loosening the threshold below 1.0 — would have
-destroyed the core guarantee to solve a problem that didn't exist.
+This is the worst kind of testing bug — not one that misses a problem, but one that **invents** one. And the obvious response, loosening the standard from 100%, would have destroyed the project's core guarantee to fix something that was never broken.
 
-**Graceful degradation hid a completely dead module.**
-`api.py` degrades to `reasons_status="not_implemented"` when the reason pipeline
-won't import. Correct for production. During development, a syntax error made
-the mapper unimportable and the API served happily — a dead pipeline looked like
-a healthy service.
+### A safety feature hid a completely dead component
 
-**Three version pins written from memory were wrong**, including pandas by a
-major version. Lockfiles get generated, never hand-written.
+The API is built to keep working if the reason system is unavailable — it reports the status and carries on. Correct for production. But during development a typo made that component unloadable, and the API kept serving happily. A totally dead pipeline looked like a healthy service.
 
-**xgboost wouldn't import at all** — the macOS arm64 wheel doesn't bundle the
-OpenMP runtime and this machine had no Homebrew. Anaconda's `libomp.dylib`
-looked like the fix and was x86_64. scikit-learn's wheel ships an arm64 one.
+Failing gracefully is right for users and dangerous for whoever's building it.
 
-## Run it
+### Small things that cost real time
 
-```bash
-git clone <repo> && cd credit-decision-explainer
-uv venv --python 3.11 && uv pip install -r requirements.txt
-cp .env.example .env        # add your GOOGLE_API_KEY
-```
+- **Three package versions I typed from memory were wrong**, one by a whole major version. Generate lockfiles, don't write them.
+- **Every AI model name I used had been retired.** Two 404s before finding one that worked — and Google's own "list available models" endpoint listed both dead ones. Only an actual test call tells the truth.
+- **The core library wouldn't even load.** XGBoost needs a maths runtime that its Mac installer doesn't include and this machine had no package manager to fetch. The obvious fix sitting on the system was built for the wrong chip. A different library happened to ship the right version, so I borrowed it from there.
 
-```bash
-.venv/bin/python src/model.py            # train, prints real AUC
-.venv/bin/python src/shap_explainer.py   # worked example, additivity check
-.venv/bin/uvicorn api:app --app-dir src --port 8000
-```
+## Try it yourself
 
-Or hit the deployed service directly:
+Against the live service:
 
 ```bash
 curl -s https://web-production-7b272.up.railway.app/health
@@ -252,13 +163,25 @@ curl -s -X POST https://web-production-7b272.up.railway.app/decision -H 'Content
  "existing_credits_count":2,"job":"A173","num_dependents":1,"telephone":"A191"}'
 ```
 
-Returns `DECLINE`, `P(bad)=0.9353`, and four reasons each carrying the feature
-and SHAP value that justify it.
+You'll get back `DECLINE`, a 93.53% risk score, and four reasons — each one carrying the exact feature and number that justifies it.
 
-## Stack
+Or run it locally:
 
-Python 3.11 · XGBoost 3.2 · SHAP 0.51 · FastAPI · Pydantic v2 · LangGraph ·
-Gemini 2.0 Flash · DeepEval 4.1 · Railway
+```bash
+git clone https://github.com/ajinkyawadaskar/credit-decision-explainer
+cd credit-decision-explainer
+uv venv --python 3.11 && uv pip install -r requirements.txt
+cp .env.example .env        # add your Google API key
+```
 
-Data: [UCI Statlog German Credit](https://archive.ics.uci.edu/dataset/144/statlog+german+credit+data)
-(1,000 applications, 20 attributes, 17 used).
+```bash
+.venv/bin/python src/model.py            # trains, prints real accuracy
+.venv/bin/python src/shap_explainer.py   # one worked example
+.venv/bin/streamlit run app.py           # the visual demo above
+```
+
+## Built with
+
+Python 3.11 · XGBoost · SHAP · FastAPI · LangGraph · Gemini 3.6 Flash · DeepEval · Streamlit · Railway
+
+Data: [UCI German Credit](https://archive.ics.uci.edu/dataset/144/statlog+german+credit+data) — 1,000 real loan applications, 20 facts each, 17 used.
