@@ -173,6 +173,17 @@ cp .env.example .env        # drop your Google API key in
 .venv/bin/streamlit run app.py           # the demo in the gif above
 ```
 
+## A note on how I built this
+
+I used AI assistance for the scaffolding — data loading, model training, the
+API layer, the Streamlit page, deploy config. I wrote the four files that make
+the actual decisions by hand, on purpose: the reason mapper, the validator, the
+graph wiring, and the traceability metric.
+
+That split was deliberate and I set it before I started. Every judgment call in
+this thing lives in those four files, and I wanted to be the one who made them.
+More on that in [docs/architecture.md](docs/architecture.md).
+
 ## Stack
 
 Python 3.11, XGBoost, SHAP, FastAPI, LangGraph, Gemini 3.6 Flash, DeepEval, Streamlit, Railway.

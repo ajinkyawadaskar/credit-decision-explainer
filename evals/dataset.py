@@ -1,6 +1,6 @@
 """Eval case construction, grounded in real model output.
 
-CLAUDE.md rule: build the eval set BEFORE the generation logic. The point is
+I built the eval set before the generation logic, on purpose. The point is
 that the cases are chosen from real records with real SHAP attributions, so
 "did the agent cite a feature that actually exists for this applicant" is
 answerable against ground truth rather than against vibes.

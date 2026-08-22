@@ -1,4 +1,5 @@
 # IDEAS — parked, NOT built
 
-Out of scope for today's ship per CLAUDE.md. Logged so they aren't lost.
+Ideas I had while building this and deliberately didn't build. Parked here so
+they're not lost, and so scope creep didn't eat the ship date.
 

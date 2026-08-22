@@ -11,3 +11,6 @@ data/*.zip
 models/*.pkl
 .ipynb_checkpoints/
 .deepeval*
+
+# Working config for my AI tooling. Kept locally, not part of the deliverable.
+CLAUDE.md

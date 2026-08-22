@@ -1,6 +1,6 @@
 """DeepEval metrics for the reason-mapper pipeline.
 
-Scope locked per CLAUDE.md: one custom metric (TraceabilityMetric) + two
+Scope: one custom metric (TraceabilityMetric) + two
 DeepEval built-ins, both explicitly wired to Gemini (DeepEval defaults to
 OpenAI and will silently reach for OPENAI_API_KEY / the wrong provider if you
 don't pass `model=` on every built-in).
