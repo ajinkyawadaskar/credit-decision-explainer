@@ -96,14 +96,43 @@ Empty output scoring 0.00 matters: an agent that says nothing is trivially
 
 ### End-to-end with the LLM — pending
 
+Measured over the 10 labelled cases (5 adversarial), Gemini 3.6 Flash:
+
 | Metric | Value |
 |---|---|
-| Traceability rate, LLM prose (20 cases) | `___` |
-| Validator rejection rate | `___` |
-| Fallback-to-deterministic rate | `___` |
+| **Traceability == 1.00** | **10 / 10 (100%)** |
+| Mean traceability | 1.000 |
+| Validator rejections | 0 / 10 |
+| Fallback to deterministic text | 0 / 10 (0%) |
+| Reasons lost to prose merging | **1 / 8 declines** |
+| p50 / p95 latency | **13.0s / 33.7s** |
 | Answer relevancy (Gemini judge) | `___` |
 | Faithfulness (Gemini judge) | `___` |
-| p50 / p95 latency | `___` |
+
+Every generated reason traced to a real adverse SHAP driver for that applicant,
+including ADV-03, where `credit_history` is suppressed as uncitable and the
+model never reintroduced it.
+
+**Three honest caveats on that 100%:**
+
+1. **Zero rejections means the validator's reject path was never exercised by
+   real model output.** It is verified against 12 hand-built adversarial inputs,
+   not against a live hallucination. A clean run is evidence the LLM behaved,
+   not proof the guard would catch it.
+2. **The prose gate is closed-world.** It detects misattribution to features
+   that exist in the dataset. An invented concept mapping to *no* feature —
+   "recent credit inquiries", "prior bankruptcy", "debt-to-income ratio" —
+   has no alias to match and passes. 5 of 8 such probes were missed. This is
+   the main known gap.
+3. **Omission is not validated.** In ADV-02 the model merged two reasons that
+   share the same text into one bullet, emitting 3 for 4 selected reasons.
+   Every reason shown was true; one simply vanished. Under Reg B, losing a
+   principal reason is arguably worse than adding a spurious one.
+
+**Latency is too high for a synchronous credit decision** at p95 33.7s. The
+deterministic path is ~30ms; effectively all of it is the LLM. Serving this for
+real means rendering asynchronously and returning the deterministic notice
+immediately.
 
 ## Decisions & tradeoffs
 

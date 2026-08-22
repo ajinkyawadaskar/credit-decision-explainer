@@ -348,3 +348,43 @@ That is the strongest possible evidence for the "LLM as enhancement, never a
 dependency" design, and it was obtained by accident. If the LLM had worked on
 the first try, this path would have gone untested until something broke in
 production.
+## First full eval run — 10/10 traceable, and three things the number hides
+
+Gemini 3.6 Flash, 10 cases: traceability 1.00 on all ten, 0 validator
+rejections, 0 fallbacks, p50 13.0s / p95 33.7s. ADV-03 passed cleanly — the
+model never reintroduced the suppressed `credit_history` driver.
+
+A 100% headline is exactly when to look harder. Three things it hides:
+
+**1. Zero rejections means the reject path never ran on real output.** The
+validator is verified against 12 hand-built adversarial inputs; it has never
+caught a live hallucination. That is evidence the LLM behaved on ten cases, not
+proof the guard works. Reporting it as "the validator works" would be
+overclaiming.
+
+**2. The prose gate is closed-world.** Aliases only exist for features in the
+dataset, so an invented concept that maps to no feature has nothing to match
+against. Probed 8 fabricated claims: "employment history", "job type",
+"housing situation" were caught; **"recent credit inquiries", "bankruptcy
+filing", "collection account", "debt-to-income ratio", "payment history" all
+passed**. Those are precisely the terms an LLM reaches for.
+
+**3. Omission is not checked, and it happened.** ADV-02 selected 4 reasons; the
+prose contains 3 bullets. The model merged `credit_amount` (754) and
+`installment_rate_pct_income` (4) into one line reading
+"Excessive obligations in relation to income (Codes: 754, 4)".
+
+Root cause is an interaction between reason_mapper and the LLM: R05, R08, R09
+and R11 all map to the **same text**, "Excessive obligations in relation to
+income". When two fire for one applicant, merging them is the natural thing for
+a language model to do. Every reason shown was true; one simply disappeared.
+Under Reg B, losing a principal reason is arguably worse than adding a spurious
+one — and the traceability metric scores this a perfect 1.00, because
+everything present was traceable.
+
+Also: "(Codes: 754, 4)" is wrong on its face — 754 is a DM amount and 4 is an
+installment-rate bucket. Neither is a code.
+
+**Latency is not viable synchronously.** p95 33.7s, of which the deterministic
+path is ~30ms. Serving this for real means rendering asynchronously and
+returning the deterministic notice immediately.

@@ -203,7 +203,19 @@ def render(state: GraphState) -> GraphState:
     try:
         llm = _load_llm()
         response = llm.invoke(prompt)
-        draft_text = response.content
+        content = response.content
+        # ChatGoogleGenerativeAI can return content as a list of parts
+        # (e.g. [{"type": "text", "text": "..."}]) instead of a plain str.
+        # Normalize to a single string before it ever reaches validate_text(),
+        # which calls .lower() on draft_text and will raise AttributeError
+        # on a list.
+        if isinstance(content, list):
+            draft_text = "".join(
+                part.get("text", "") if isinstance(part, dict) else str(part)
+                for part in content
+            )
+        else:
+            draft_text = content
     except Exception:
         # LLM down, rate-limited, missing key, whatever -- draft_text stays
         # None, verify() will fail it, and the graph proceeds to fallback.
