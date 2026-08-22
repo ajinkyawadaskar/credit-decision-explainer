@@ -290,3 +290,24 @@ a problem that never existed.
 
 Fixed by storing all adverse drivers rather than a top-N slice. Re-verified:
 0 false positives across all 46 declines in the test set.
+## Streamlit UI — built inside the 30-minute cap
+
+Deliberately shows the mechanism rather than just the verdict: each reason is
+rendered next to the SHAP feature and value it traces to, and an expander lists
+the adverse drivers that were **not** cited with the reason why. The suppression
+rule is the interesting part of the system, so hiding it would waste the demo.
+
+Two things surfaced while driving it in a real browser:
+
+1. **The Score button was below 17 form inputs.** Functionally fine, terrible
+   for a 30-second GIF — you'd scroll the entire form before anything happened.
+   Moved it directly under the record picker so the demo is two clicks. Only
+   noticed by actually using the UI; reading the code would never have shown it.
+
+2. **Verified on test row 14** — the record that would have been a false
+   hallucination before the eval ground-truth fix. It cites
+   `installment_rate_pct_income` at SHAP +0.0871, a driver ranked 7th by
+   magnitude. Good end-to-end confirmation that the fix holds in the real path.
+
+Arithmetic check visible in the UI: base -0.848 + Σshap +1.264 = +0.416
+log-odds -> sigmoid -> 60.3%, matching the displayed P(bad).
