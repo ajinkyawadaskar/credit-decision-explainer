@@ -54,3 +54,63 @@ finding for the Tradeoffs section.
 - Recall on the decline class is only **0.52** at threshold 0.5. On 1000 rows
   that spread is wide; the threshold is a live decision, not a default.
 
+## 0:45 — SHAP working, additivity verified
+
+Used XGBoost's built-in `pred_contribs=True` rather than `shap.TreeExplainer`.
+Same exact TreeSHAP algorithm, but it consumes pandas `category` dtypes
+natively — the generic explainer path does not reliably handle the native
+categorical features we deliberately chose in step 1. Avoided a likely dead end
+rather than hitting one.
+
+Added `verify_additivity()`: checks `base_value + sum(SHAP) == model log-odds`
+for every row. **PASS on all 200 test rows.** This is SHAP's core mathematical
+guarantee and it is the foundation the traceability validator stands on — if
+additivity fails, every generated reason is built on sand. Worth asserting in
+CI rather than trusting.
+
+Worked example — test row 96, P(bad) = 0.9353, DECLINE:
+
+| feature | value | SHAP |
+|---|---|---|
+| credit_amount | 11816 | +0.8089 |
+| checking_status | < 0 DM | +0.7904 |
+| credit_history | no credits taken / all paid duly | +0.5205 |
+| duration_months | 45 | +0.5082 |
+
+base -0.8483 + sum 3.5190 = 2.6707 log-odds -> sigmoid -> 0.9353. Checks out.
+
+## 0:45 — SURPRISE: the credit_history encoding is inverted, and it's a compliance problem
+
+`credit_history = A30` ("no credits taken / all paid duly") pushed this
+applicant *toward decline*. That looked like a bug. It isn't — the model is
+faithfully learning the data:
+
+| code | meaning | n | actual bad rate | mean SHAP |
+|---|---|---|---|---|
+| A30 | no credits taken / all paid duly | 40 | **62.5%** | +0.6621 |
+| A31 | all credits at this bank paid duly | 49 | **57.1%** | +0.6111 |
+| A32 | existing credits paid duly till now | 530 | 31.9% | +0.1198 |
+| A33 | delay in paying off in the past | 88 | 31.8% | +0.0613 |
+| A34 | critical account / other credits existing | 293 | **17.1%** | -0.6350 |
+
+Two separate things here:
+
+**A30 is defensible.** "No credit history" genuinely is high risk — the thin-file
+problem. And it maps cleanly to a real, lawful ECOA reason code: *"insufficient
+credit file"* / *"limited credit experience"*. No issue.
+
+**A31 is NOT defensible as a reason.** The model wants to decline people because
+they *paid all their credits at this bank on time*. Handing that applicant an
+adverse action notice reading "you were denied because you have no delinquencies"
+is absurd on its face and would not survive regulatory review — even though it is
+a *truthful* description of what the model did.
+
+Also note A34 ("critical account") is the **lowest**-risk group at 17.1%. This is
+a known quirk of the German Credit coding, most likely survivorship/selection in
+how the sample was drawn.
+
+**Implication for `reason_mapper.py` (Ajinkya's module):** SHAP traceability is
+necessary but NOT sufficient. A reason can be perfectly traceable to a real SHAP
+feature and still be an unusable adverse action reason. The mapper needs a notion
+of which (feature, direction) pairs are *citable*, separate from which are merely
+*true*. Flagged before the module was written, not after.
