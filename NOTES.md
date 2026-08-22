@@ -150,3 +150,36 @@ actually tests what its name claims. Two did not:
 Lesson worth keeping: an eval case named after a failure mode does not
 necessarily *exercise* that failure mode. Both defects would have silently
 inflated the final numbers.
+## FastAPI — graceful degradation instead of a hard dependency
+
+`reason_mapper.py` and `graph.py` are Ajinkya's and don't exist yet, but the
+API needed to be demoable and deployable today. Rather than block, `/decision`
+returns the decision plus real SHAP drivers and reports
+`reasons_status="not_implemented"`; `/health` surfaces the same fact. The stub
+raises `NotImplementedError` at import time by design, so the loader is just a
+try/except — when the module lands, it starts working with no other change.
+
+## FastAPI — prohibited-basis enforcement moved into the type system
+
+`ApplicantRequest` sets `extra="forbid"` and simply has no `age_years`,
+`personal_status_sex`, or `foreign_worker` field. Submitting one returns 422
+`extra_forbidden`. So the ECOA constraint from step 1 is now enforced in three
+independent places: dropped at training, absent from the request schema, and
+asserted in the reason mapper spec. Defense in depth, and it demos well.
+
+## FastAPI — scare that wasn't a bug
+
+Hand-typed a payload "for test row 96" and got P(bad)=0.8051 against the batch
+path's 0.9353. Looked like a serving/training skew bug — the classic one where
+the API rebuilds dtypes differently than training did. It wasn't: I had
+invented four field values (purpose, employment_since, housing,
+existing_credits_count), so it was a different applicant.
+
+Pulled the real row and re-ran: API and batch agree to 4 decimals on P(bad) and
+produce an identical top-4 driver list. Replaced the OpenAPI example with the
+verbatim record so the docs example is reproducible rather than composed.
+
+Real lesson: I nearly wrote "verified API matches batch" on the strength of a
+payload I typed from memory. Serving/training skew is a genuine risk with
+XGBoost native categoricals, so the check was worth doing properly — the
+dtype-restoration loop in `api.py::decision` is what makes it pass.
