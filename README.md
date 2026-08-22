@@ -8,7 +8,7 @@ the language model.**
 <!-- Record: POST a declining applicant -> reasons appear -> point at the SHAP -->
 <!-- value each one traces to. Then show a validation rejection if you can. -->
 
-`___DEMO_GIF___`
+![Demo](docs/demo.gif)
 
 **Live API:** [https://web-production-7b272.up.railway.app](https://web-production-7b272.up.railway.app/health) · [Architecture](docs/architecture.md) · [What didn't work](#what-didnt-work)
 
