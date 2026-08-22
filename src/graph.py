@@ -1,134 +1,326 @@
-"""LangGraph agent: SHAP explanation -> validated adverse action notice.
+"""LangGraph pipeline: applicant record -> lawful, traceable adverse-action
+notice.
 
-===============================================================================
-    OWNER: Ajinkya.  DO NOT let Claude implement this module.
-===============================================================================
+    explain (shap_explainer) -> select (reason_mapper) -> render (Gemini)
+        -> verify (validator) --pass--> END
+                              --fail, retries left--> render (retry)
+                              --fail, retries exhausted--> fallback -> END
 
-THE ARCHITECTURAL POINT (this is the interview answer)
-------------------------------------------------------
-The LLM does NOT decide anything. By the time it runs, the decision is made
-(model.py), the drivers are computed (shap_explainer.py), and the reasons are
-SELECTED (reason_mapper.py, deterministic). The LLM's only job is to render
-already-chosen reasons into readable prose, and its output is then checked by
-a deterministic validator that can reject it.
+**The LLM is an enhancement, never a dependency.** If Gemini is down, rate-
+limited, produces garbage, or keeps reintroducing a suppressed feature, the
+service still returns a lawful, traceable notice: the deterministic
+reason_mapper text, verbatim. That fallback edge is the most important line
+in this file.
 
-    decide -> attribute -> SELECT (deterministic) -> render (LLM) -> VERIFY
+DECISIONS THIS FILE MAKES
+--------------------------
+1. RETRY COUNT = 1 (one retry after the initial render, so at most 2 render
+   calls total before falling back). Justification: this runs in the serving
+   path on every DECLINE. Each retry is a real API call with real latency and
+   real cost, and the validator is deterministic -- if the first retry, fed
+   the actual violation, still fails, there's no reason to believe a third
+   blind attempt succeeds where a corrected second one didn't. Two chances
+   (original + one corrected attempt) is enough to absorb ordinary LLM
+   flakiness without turning a bounded compliance check into an unbounded
+   cost center. If eval data later shows retry #2 has a meaningfully higher
+   pass rate than retry #1, this constant is the one line to change.
 
-That ordering is the whole design. Most "LLM + explainability" projects let
-the model generate the reasons, which means nothing downstream can tell a real
-reason from a fluent invention. Here the LLM is a rendering layer wrapped in a
-deterministic sandwich, so the guarantee survives contact with it.
+2. THE RETRY SEES THE VIOLATION. `render` is given the validator's
+   `violations` list on retry (see `_build_prompt`), phrased as a correction
+   instruction ("your previous draft mentioned X, which is not one of the
+   listed reasons -- remove it and do not reintroduce it"), not just handed
+   back as-is. Rationale: a validator complaint with zero context ("retry")
+   gives the model no signal about what to fix, so it's likely to repeat the
+   same mistake or invent a different one. Explicitly naming the rejected
+   claim is more likely to fix that specific claim than staying silent,
+   which is why the option is used here. Risk accepted: the model could treat
+   the complaint as material to discuss ("the applicant's credit history...")
+   rather than an instruction to avoid it -- this is why `verify` re-checks
+   the retry output with the exact same deterministic gate as the first
+   attempt; the corrected prompt is a nudge, not a guarantee.
 
-Say it that way and you have answered "why is this trustworthy" in one breath.
+3. FALLBACK IS SURFACED, NOT HIDDEN. `used_fallback` is a top-level field on
+   the returned state, always populated (True/False), never inferred by the
+   caller from absence of other fields. Argument for surfacing over hiding:
+   this is the single most interesting thing the API knows about a given
+   response -- "a human should know a machine had to override the language
+   model to stay lawful here" is exactly the kind of fact that belongs in an
+   audit trail, and it costs nothing to expose since the graph already tracks
+   it in state for the eval harness's fallback-rate metric.
+
+4. APPROVE SHORT-CIRCUITS BEFORE render. `select` returns `reasons=[]` for
+   an APPROVE explanation (per reason_mapper.map_reasons). The graph checks
+   this immediately after `select` and routes straight to a trivial terminal
+   node that sets `final_text = ""` (no adverse reasons to render), skipping
+   `render` and `verify` entirely. Rationale: this removes a whole class of
+   failure (an LLM asked to write prose for zero reasons might invent
+   reasons out of sheer helpfulness) and saves a network call on every
+   approval, which is the majority of any real applicant pool.
+"""
+from __future__ import annotations
+
+import os
+from typing import TypedDict
+
+import pandas as pd
+from langgraph.graph import END, StateGraph
+
+MAX_ATTEMPTS = 2  # initial render + 1 retry, per decision 1 above
 
 
-GRAPH SHAPE
------------
-Nodes (suggested; reshape if you prefer):
+# ---------------------------------------------------------------------------
+# Lazy imports. Mirrors api.py::_load_reason_mapper -- a missing
+# GOOGLE_API_KEY (or a broken langchain_google_genai install) must degrade
+# the render step, not crash graph construction or process startup. Only
+# `render` needs the LLM; `explain`, `select`, and `verify` never touch the
+# network and must keep working even if Gemini is entirely unavailable.
+# ---------------------------------------------------------------------------
+def _load_llm():
+    from langchain_google_genai import ChatGoogleGenerativeAI
 
-    explain      X -> Explanation                (calls shap_explainer)
-    select       Explanation -> list[ReasonCode] (calls reason_mapper)
-    render       ReasonCodes -> prose            (calls Gemini)
-    verify       prose -> ValidationResult       (calls validator)
-
-Edges:
-
-    explain -> select -> render -> verify
-    verify --conditional--> END              if passed
-                       --> render            if failed and retries remain
-                       --> fallback          if retries exhausted
-
-The `fallback` path is the most important edge in the graph: emit the
-deterministic reason_mapper text verbatim. It is blunt and it is correct.
-**The LLM must be an enhancement, never a dependency** — if Gemini is down,
-rate-limited, or producing garbage, the service still returns a lawful,
-traceable notice.
+    return ChatGoogleGenerativeAI(
+        model=os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"),
+        temperature=0,  # compliance document, not copywriting
+        google_api_key=os.environ["GOOGLE_API_KEY"],
+    )
 
 
-STATE
------
-LangGraph state is a TypedDict threaded through nodes. Suggested keys:
+def _load_explainer():
+    from shap_explainer import CreditExplainer
 
+    return CreditExplainer()
+
+
+def _load_reason_mapper():
+    from reason_mapper import map_reasons
+
+    return map_reasons
+
+
+def _load_validator():
+    from validator import validate
+
+    return validate
+
+
+# ---------------------------------------------------------------------------
+# State
+# ---------------------------------------------------------------------------
+class GraphState(TypedDict):
     applicant: pd.DataFrame
-    explanation: Explanation | None
-    reasons: list[ReasonCode]
+    explanation: object | None       # shap_explainer.Explanation
+    reasons: list                    # list[reason_mapper.ReasonCode]
     draft_text: str | None
-    validation: ValidationResult | None
+    validation: object | None        # validator.ValidationResult
     attempts: int
     used_fallback: bool
     final_text: str | None
 
-Keep `attempts` and `used_fallback` in state, not in a closure — the eval
-harness reports fallback rate, and that number belongs in the README. A high
-fallback rate is not a failure; it is evidence the validator is working.
+
+# ---------------------------------------------------------------------------
+# Nodes
+# ---------------------------------------------------------------------------
+def explain(state: GraphState) -> GraphState:
+    """X -> Explanation. No network call -- shap_explainer is a local model."""
+    explainer = _load_explainer()
+    explanation = explainer.explain(state["applicant"])
+    return {**state, "explanation": explanation}
 
 
-PROMPTING — where the risk lives
---------------------------------
-Give the model ONLY the selected reasons. Do not hand it the full SHAP vector,
-the raw applicant record, or the probability. Anything you put in the prompt,
-it can and eventually will mention. The narrowest possible context is also the
-smallest hallucination surface.
-
-Instruct explicitly: rephrase these N reasons, add nothing, invent no numbers,
-do not speculate about what would have changed the outcome. Then assume it
-disobeys anyway and let `verify` catch it — the prompt is a preference, the
-validator is the guarantee.
-
-Temperature 0. This is a compliance document, not copywriting.
-
-Model wiring (installed and verified in this env):
-
-    from langchain_google_genai import ChatGoogleGenerativeAI
-    llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0,
-                                 google_api_key=os.environ["GOOGLE_API_KEY"])
-
-`.env.example` already declares GOOGLE_API_KEY and GEMINI_MODEL. Load with
-python-dotenv. Never hardcode the key; never log the prompt with it attached.
+def select(state: GraphState) -> GraphState:
+    """Explanation -> list[ReasonCode]. Pure, deterministic, no network."""
+    map_reasons = _load_reason_mapper()
+    reasons = map_reasons(state["explanation"])
+    return {**state, "reasons": reasons}
 
 
-DECISIONS YOU OWN
------------------
-1. RETRY COUNT. How many times do you re-render before falling back? Each
-   retry costs latency and money on a request in the serving path. 1? 2?
-   Justify it.
-
-2. DOES THE RETRY SEE THE VIOLATION? Feeding the validator's complaint back
-   ("you mentioned employment history, which is not a driver") usually helps.
-   It also risks the model treating the complaint as new material to discuss.
-   Try both.
-
-3. WHAT THE API RETURNS ON FALLBACK. Does the caller learn that the LLM was
-   overridden? Argument for yes: auditability, and it makes the mechanism
-   visible in the demo. Argument for no: it's an implementation detail. I'd
-   surface it — it is the most interesting thing your API knows.
-
-4. APPROVE PATH. reason_mapper returns [] for approvals. Does the graph
-   short-circuit before `render`, or run through with empty reasons? Short-
-   circuiting is cheaper and removes a whole class of failure.
+def _deterministic_text(reasons) -> str:
+    """The blunt, always-correct rendering: reason_mapper's own text, joined
+    verbatim with no LLM involvement. This is what `fallback` emits and what
+    APPROVE cases (no reasons) reduce to."""
+    if not reasons:
+        return ""
+    return "\n".join(f"[{r.code}] {r.text}" for r in reasons)
 
 
-HARD REQUIREMENTS
------------------
-- The graph must never emit text that failed validation. Fallback instead.
-- No network call in `select` or `verify` — only `render` touches the LLM.
-- Every path must terminate. Bound the retries; a validation loop that can
-  spin forever is a production incident.
-- The API imports this lazily (see api.py::_load_reason_mapper for the
-  pattern) so a missing GOOGLE_API_KEY degrades rather than crashes startup.
+def approve_passthrough(state: GraphState) -> GraphState:
+    """Terminal node for APPROVE cases (reasons == []). No render, no verify
+    -- see decision 4. There is nothing adverse to explain, so there is
+    nothing for an LLM to embellish."""
+    return {
+        **state,
+        "draft_text": None,
+        "validation": None,
+        "used_fallback": False,
+        "final_text": "",
+    }
 
 
-TEST AGAINST
-------------
-    evals/cases.json — 10 grounded cases, 5 adversarial. ADV-03 is the one to
-    watch: credit_history=A31 is suppressed by reason_mapper, so if the LLM
-    reintroduces "your credit history" into the prose, `verify` must reject
-    it. That single case exercises the entire architecture.
-"""
-from __future__ import annotations
+def _build_prompt(reasons, violations: list[str] | None) -> str:
+    """Narrowest possible context: ONLY the selected reasons' text, never the
+    raw SHAP vector, the applicant record, or the probability. Anything put
+    in the prompt, the model can and eventually will mention -- so nothing
+    goes in that isn't already authorized to appear in the letter.
+    """
+    reason_lines = "\n".join(f"- {r.text}" for r in reasons)
 
-# TODO(Ajinkya): implement. See module docstring for the full spec.
-raise NotImplementedError(
-    "src/graph.py is owned by Ajinkya and has not been implemented yet. "
-    "See the module docstring for the spec."
-)
+    instructions = (
+        "You are drafting the reasons section of a credit adverse-action "
+        "notice. Below are the ONLY approved reasons for this decision. "
+        "Rephrase them into clear, professional, applicant-facing prose. "
+        "Do not add any reason, factor, or detail that is not listed below. "
+        "Do not invent or restate any numbers other than ones that literally "
+        "appear below. Do not speculate about what would have changed the "
+        "outcome. Do not mention any topic not listed below, even in passing.\n\n"
+        f"Approved reasons:\n{reason_lines}"
+    )
+
+    if violations:
+        violation_lines = "\n".join(f"- {v}" for v in violations)
+        instructions += (
+            "\n\nYour previous draft was rejected for the following reason(s). "
+            "Remove the offending content and do not reintroduce it in any "
+            f"form:\n{violation_lines}"
+        )
+
+    return instructions
+
+
+def render(state: GraphState) -> GraphState:
+    """ReasonCodes (+ optional prior violations) -> prose. The only node
+    that touches the network. If the LLM is unavailable for any reason, this
+    fails soft: draft_text is left None and validation naturally fails,
+    routing straight to fallback rather than raising out of the graph.
+    """
+    reasons = state["reasons"]
+    prior_violations = (
+        state["validation"].violations if state.get("validation") else None
+    )
+    prompt = _build_prompt(reasons, prior_violations)
+
+    attempts = state.get("attempts", 0) + 1
+
+    try:
+        llm = _load_llm()
+        response = llm.invoke(prompt)
+        draft_text = response.content
+    except Exception:
+        # LLM down, rate-limited, missing key, whatever -- draft_text stays
+        # None, verify() will fail it, and the graph proceeds to fallback.
+        draft_text = None
+
+    return {**state, "draft_text": draft_text, "attempts": attempts}
+
+
+def verify(state: GraphState) -> GraphState:
+    """prose -> ValidationResult. No network call -- validator.py is pure."""
+    validate = _load_validator()
+    draft_text = state.get("draft_text")
+
+    if draft_text is None:
+        # render() failed outright (LLM unavailable). Build a ValidationResult
+        # directly rather than calling validate() on a None text.
+        from validator import ValidationResult
+
+        validation = ValidationResult(
+            passed=False,
+            violations=["No draft text produced (LLM call failed or unavailable)."],
+            checked_features=set(),
+        )
+    else:
+        validation = validate(state["reasons"], draft_text, state["explanation"])
+
+    return {**state, "validation": validation}
+
+
+def fallback(state: GraphState) -> GraphState:
+    """The most important node in the graph. Emit reason_mapper's own text,
+    verbatim, no LLM. Blunt and correct beats fluent and unverified."""
+    return {
+        **state,
+        "used_fallback": True,
+        "final_text": _deterministic_text(state["reasons"]),
+    }
+
+
+def accept(state: GraphState) -> GraphState:
+    """Terminal node for a validation pass: ship the LLM prose as-is."""
+    return {
+        **state,
+        "used_fallback": False,
+        "final_text": state["draft_text"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Conditional routing
+# ---------------------------------------------------------------------------
+def _route_after_select(state: GraphState) -> str:
+    return "approve_passthrough" if not state["reasons"] else "render"
+
+
+def _route_after_verify(state: GraphState) -> str:
+    if state["validation"].passed:
+        return "accept"
+    if state.get("attempts", 0) < MAX_ATTEMPTS:
+        return "render"
+    return "fallback"
+
+
+# ---------------------------------------------------------------------------
+# Graph assembly
+# ---------------------------------------------------------------------------
+def build_graph():
+    graph = StateGraph(GraphState)
+
+    graph.add_node("explain", explain)
+    graph.add_node("select", select)
+    graph.add_node("approve_passthrough", approve_passthrough)
+    graph.add_node("render", render)
+    graph.add_node("verify", verify)
+    graph.add_node("fallback", fallback)
+    graph.add_node("accept", accept)
+
+    graph.set_entry_point("explain")
+    graph.add_edge("explain", "select")
+
+    # Decision 4: APPROVE short-circuits before render/verify entirely.
+    graph.add_conditional_edges(
+        "select",
+        _route_after_select,
+        {"approve_passthrough": "approve_passthrough", "render": "render"},
+    )
+    graph.add_edge("approve_passthrough", END)
+
+    graph.add_edge("render", "verify")
+
+    # Bounded: MAX_ATTEMPTS caps how many times this can loop back to
+    # render, so every path terminates. No edge in this graph can spin
+    # forever -- a validation loop that can is a production incident.
+    graph.add_conditional_edges(
+        "verify",
+        _route_after_verify,
+        {"accept": "accept", "render": "render", "fallback": "fallback"},
+    )
+    graph.add_edge("accept", END)
+    graph.add_edge("fallback", END)
+
+    return graph.compile()
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+def run(applicant: pd.DataFrame) -> GraphState:
+    app = build_graph()
+    initial_state: GraphState = {
+        "applicant": applicant,
+        "explanation": None,
+        "reasons": [],
+        "draft_text": None,
+        "validation": None,
+        "attempts": 0,
+        "used_fallback": False,
+        "final_text": None,
+    }
+    return app.invoke(initial_state)

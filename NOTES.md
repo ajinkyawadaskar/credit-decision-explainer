@@ -311,3 +311,40 @@ Two things surfaced while driving it in a real browser:
 
 Arithmetic check visible in the UI: base -0.848 + Σshap +1.264 = +0.416
 log-odds -> sigmoid -> 60.3%, matching the displayed P(bad).
+## DEAD END (mine): every Gemini model name I wrote was wrong
+
+I put `gemini-2.0-flash` in `.env.example` and in the graph.py spec from
+memory. It is **retired** — 404 NOT_FOUND. Replaced it with `gemini-2.5-flash`;
+also 404, "no longer available to new users." Only the third attempt,
+`gemini-3.6-flash`, actually worked.
+
+Worse, `client.models.list()` **listed both** of the dead models. The list
+endpoint reports models the key cannot invoke, so it is not a usable check. The
+only reliable test is a live one-token call per candidate, which is what finally
+produced an answer.
+
+Two lessons, the second more general than the first:
+  - Model identifiers age out faster than anything else in a stack. Never write
+    one from memory; probe it.
+  - This is the same failure as the hand-written version pins earlier today —
+    asserting a fact I believed instead of one I measured. Second occurrence in
+    one build.
+
+**`gemini-3.6-flash` ignores the `temperature` parameter** (fixed sampling
+defaults; langchain emits a UserWarning). So the temperature=0 in graph.py is
+silently inert and generation is not deterministic. That does not break the
+design — the architecture already assumes the LLM is unreliable and validates
+its output — but "temp 0 so it's deterministic" is no longer a true statement
+about this system, and the README must not claim it.
+
+## The fallback path proved itself before the LLM ever worked
+
+While the model name was broken, every graph run failed the LLM call, and the
+system still returned correct, lawful, fully-traceable adverse action notices
+on all four test cases via the deterministic fallback — 100% fallback rate,
+zero crashes.
+
+That is the strongest possible evidence for the "LLM as enhancement, never a
+dependency" design, and it was obtained by accident. If the LLM had worked on
+the first try, this path would have gone untested until something broke in
+production.
