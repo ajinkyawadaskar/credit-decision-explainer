@@ -10,7 +10,7 @@ the language model.**
 
 `___DEMO_GIF___`
 
-**Live API:** `___RAILWAY_URL___` · [Architecture](docs/architecture.md) · [What didn't work](#what-didnt-work)
+**Live API:** [https://web-production-7b272.up.railway.app](https://web-production-7b272.up.railway.app/health) · [Architecture](docs/architecture.md) · [What didn't work](#what-didnt-work)
 
 ---
 
@@ -237,8 +237,14 @@ cp .env.example .env        # add your GOOGLE_API_KEY
 .venv/bin/uvicorn api:app --app-dir src --port 8000
 ```
 
+Or hit the deployed service directly:
+
 ```bash
-curl -s -X POST localhost:8000/decision -H 'Content-Type: application/json' -d '{
+curl -s https://web-production-7b272.up.railway.app/health
+```
+
+```bash
+curl -s -X POST https://web-production-7b272.up.railway.app/decision -H 'Content-Type: application/json' -d '{
  "checking_status":"A11","duration_months":45,"credit_history":"A30","purpose":"A49",
  "credit_amount":11816,"savings_status":"A61","employment_since":"A75",
  "installment_rate_pct_income":2,"other_debtors":"A101","residence_since_years":4,

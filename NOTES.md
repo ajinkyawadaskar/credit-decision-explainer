@@ -423,3 +423,33 @@ recording *why* each fallback happened.
 The clean numbers in the README come from the run without judges, where no
 throttling occurred. Noting that explicitly so nobody later "reproduces" the
 worse figure and thinks the system regressed.
+## Deployed — and the libomp worry was unfounded
+
+Live at https://web-production-7b272.up.railway.app, deployed from GitHub via
+Railway's browser flow. The npm global install for the Railway CLI hit EACCES
+(needs admin rights on /usr/local/lib); skipping the CLI entirely and deploying
+from the repo was faster anyway and matches the scope cut.
+
+**Verified the deploy is correct, not merely alive.** Same applicant, deployed
+vs local:
+
+    probability_bad   0.9353   MATCH
+    base_value       -0.8483   MATCH
+    credit_amount    +0.8089   MATCH
+    checking_status  +0.7904   MATCH
+    credit_history   +0.5205   MATCH
+    duration_months  +0.5082   MATCH
+
+Bit-identical SHAP attributions across macOS arm64 and Railway's Linux
+container. Error handling holds in production too: 422 on a prohibited-basis
+field, 422 on malformed JSON, 405 on the wrong verb. /health responds in 0.18s.
+
+The one untested assumption going in was OpenMP: locally, xgboost needed a
+hand-copied arm64 `libomp.dylib` because the wheel doesn't bundle it and this
+machine has no Homebrew. I reasoned the manylinux wheel links `libgomp`
+normally on Linux, but that was reasoning, not evidence. It held — the build
+needed no intervention. Worth recording that it was a genuine unknown at deploy
+time rather than pretending it was always safe.
+
+Only Streamlit is excluded from requirements.txt, so the container runs the API
+alone: ~58MB idle, ~93MB after requests.
