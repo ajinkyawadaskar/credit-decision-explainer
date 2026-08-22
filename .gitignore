@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.DS_Store
+data/*.csv
+data/*.data
+data/*.zip
+models/*.json
+models/*.pkl
+.ipynb_checkpoints/
+.deepeval*
