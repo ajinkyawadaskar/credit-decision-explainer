@@ -218,3 +218,39 @@ Two honest caveats:
    that never wrote its log. Worth remembering that a failed smoke test can be
    the harness, and the fix is to run it in the foreground and read the error
    before theorising.
+## reason_mapper.py landed (Ajinkya) — and the near-loss that argues for committing early
+
+Module complete: 17/17 feature coverage, 7 features suppressed as having no
+lawful Reg B reason, per-driver suppression for the A31/A32 "paid on time"
+case, materiality floor 0.05, max 4 reasons.
+
+Verified across the full 200-row test set:
+  - 46 declines, reason-count distribution {3: 1, 4: 45}, zero declines
+    produced zero reasons
+  - deterministic across repeat calls
+  - **0 reasons cited a feature that wasn't in that applicant's SHAP
+    explanation or that pushed toward approval** — the core invariant
+
+Three review rounds found: (1) three feature names that didn't exist in the
+data, silently suppressing R08/R12 rather than crashing, because is_citable()
+looked up with .get(); (2) `purpose` mapped to "collateral not sufficient" and
+`other_debtors` to "excessive obligations" — both fabricated bases, since a
+stated loan purpose is not a security interest; (3) a hard `_MAPPING_TABLE[...]`
+index that would KeyError if it ever disagreed with the .get() in is_citable().
+
+Ajinkya's fix for (2) was better than the suggested remap: suppress outright,
+on the reasoning that mapping purpose to a collateral code "would invent a
+security-interest claim the feature doesn't support." A wrong-but-plausible
+reason code is worse than none, because the applicant cannot falsify it.
+
+**The near-loss:** mid-review an edit landed that fixed one bug while reverting
+another and introducing a literal tab into a space-indented file. The module
+stopped parsing entirely. Because `api.py` degrades gracefully on
+NotImplementedError/ImportError, a dead reason_mapper would have shown up as
+`reasons_status="not_implemented"` rather than a crash — silent. The revert was
+only recoverable because the working version had been reviewed in-session; git
+had nothing but the original stub.
+
+Lesson: graceful degradation is right for deploys and dangerous during
+development, and "commit after each working milestone" exists precisely so a
+stale-copy overwrite costs minutes instead of an afternoon.

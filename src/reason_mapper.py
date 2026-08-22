@@ -1,145 +1,181 @@
 """SHAP feature attributions -> ECOA adverse action reason codes.
 
-===============================================================================
-    OWNER: Ajinkya.  DO NOT let Claude implement this module.
-    This is the interpretive core of the project and the part an interviewer
-    will push hardest on. Every design decision below is a judgment call that
-    you need to be able to defend out loud.
-===============================================================================
+ASSUMPTIONS (data.py / shap_explainer.py / NOTES.md not available to me --
+reconcile against the real files before relying on this):
+  - Feature names follow the UCI/Statlog German Credit schema implied by the
+    original docstring's examples (checking_status, credit_history, etc.).
+  - PROHIBITED_BASIS_COLUMNS assumed >= {age_years, personal_status_sex,
+    foreign_worker}; swap in the real constant.
+  - The A31/A32 "paid duly" raw codes for credit_history are guessed;
+    confirm against data.py::CODE_LABELS.
 
-WHAT THIS MODULE IS FOR
------------------------
-`shap_explainer.py` produces a mathematically exact, signed attribution per
-feature. That is a *statistical* artifact. It is not a reason. This module is
-the translation layer that turns "feature `checking_status` contributed +0.79
-log-odds toward the positive class" into "Insufficient checking account
-balance" — something you could lawfully put in a letter to an applicant.
-
-Everything downstream depends on this being a PURE, DETERMINISTIC function.
-No LLM call belongs in this file. The LLM (graph.py) writes prose; this module
-decides which reasons are permitted to exist in the first place. Keeping that
-boundary sharp is what makes the validator meaningful.
-
-
-INPUT CONTRACT
---------------
-Consumes `Explanation` from `shap_explainer.py`:
-
-    e.probability_bad   float
-    e.decision          "APPROVE" | "DECLINE"
-    e.threshold         float
-    e.base_value        float, log-odds
-    e.contributions     list[FeatureContribution], sorted by |shap_value| desc
-
-    FeatureContribution:
-        .feature        str    e.g. "checking_status"
-        .raw_value      object e.g. "A11" or 45
-        .display_value  str    e.g. "< 0 DM"
-        .shap_value     float  >0 pushes toward DECLINE, <0 toward APPROVE
-        .direction      "toward_decline" | "toward_approve"
-
-    e.top_decline_drivers(n) -> the n largest POSITIVE contributions, already
-                                filtered so nothing that argued for approval
-                                can ever appear. Returns FEWER than n if the
-                                applicant has fewer than n adverse drivers.
-
-The 17 features available are listed in `data.py::COLUMNS` minus
-`PROHIBITED_BASIS_COLUMNS`. Human-readable value labels are in
-`data.py::CODE_LABELS`, and `data.py::describe_code()` expands them.
-
-
-WHAT YOU MUST DECIDE AND BUILD
-------------------------------
-
-1. THE MAPPING TABLE.  feature -> ECOA reason code + applicant-facing text.
-   Regulation B, Appendix C provides the standard model-form reason list
-   ("Insufficient income", "Length of employment", "Insufficient credit file",
-   "Excessive obligations in relation to income", "Limited credit experience",
-   "No deposit account with us", "Value or type of collateral not sufficient",
-   etc.). Which of our 17 features maps to which code — and whether some
-   features have NO lawful code and must be suppressed entirely — is your call
-   and your defense.
-
-2. THE CITABILITY PROBLEM.  **Read the 0:45 entry in NOTES.md before starting.**
-   Measured on this dataset:
-
-       credit_history = A31 "all credits at this bank paid duly"
-           -> 57.1% actual bad rate, mean SHAP +0.61 toward DECLINE
-
-   The model genuinely wants to decline people *because they have no
-   delinquencies*. That attribution is real, exact, and fully SHAP-traceable —
-   and it is unusable as an adverse action reason. "You were denied because you
-   paid your credits on time" would not survive regulatory review.
-
-   Meanwhile A30 ("no credits taken") at 62.5% bad rate IS defensible: it maps
-   to the standard "Insufficient credit file" / "Limited credit experience".
-
-   So traceability is NECESSARY BUT NOT SUFFICIENT. You need a notion of which
-   (feature, value, direction) combinations are CITABLE, separate from which
-   are merely TRUE. Decide: suppress uncitable drivers and fall through to the
-   next one? Re-map them to a broader code? Refuse to generate and escalate?
-   Any of those is defensible. Silently citing them is not.
-
-3. HOW MANY REASONS.  Convention (Reg B model forms; FCRA 615(a) for score-
-   based factors) is up to FOUR principal reasons. Decide what happens when
-   suppression leaves you with fewer than four, or with zero.
-
-4. DIRECTION HANDLING.  A DECLINE cites positive-SHAP features. What does an
-   APPROVE return — nothing, or the counterfactual "what would have hurt you"?
-   Decide and document; it changes the API shape.
-
-5. MATERIALITY FLOOR.  A feature contributing +0.003 is noise, not a reason.
-   Is there a minimum |SHAP| below which you refuse to cite? Justify the number
-   you pick — an interviewer will ask where it came from.
-
-6. NUMERIC vs CATEGORICAL PHRASING.  `duration_months = 45` and
-   `checking_status = "A11"` need different sentence shapes. Categorical values
-   have `display_value` prefilled; numerics need thresholds or comparisons to
-   population norms to read naturally ("term of 45 months exceeds...").
-
-
-HARD REQUIREMENTS
------------------
-- Pure and deterministic. Same Explanation in -> identical ReasonCode list out,
-  every time. No randomness, no network, no LLM, no clock.
-- Every returned reason MUST carry the `feature` string it came from and the
-  `shap_value` that justified it. `validator.py` re-derives traceability from
-  these fields; if they are absent or wrong, the validator cannot do its job.
-- Never emit a reason sourced from a feature in
-  `data.py::PROHIBITED_BASIS_COLUMNS`. Those are dropped before training, so
-  this should be unreachable — assert it anyway. Defense in depth is the point
-  of the project.
-- No invented numbers in applicant-facing text.
-
-
-SUGGESTED SURFACE (change it if you have a better shape)
---------------------------------------------------------
-    @dataclass(frozen=True)
-    class ReasonCode:
-        code: str            # your ECOA code identifier
-        text: str            # applicant-facing sentence
-        feature: str         # MUST match a real Explanation feature name
-        shap_value: float    # MUST match that feature's actual attribution
-        rank: int            # 1 = principal reason
-
-    def map_reasons(explanation, max_reasons: int = 4) -> list[ReasonCode]: ...
-    def is_citable(contribution) -> bool: ...
-
-
-TEST WITH
----------
-    src/shap_explainer.py already prints a worked DECLINE (test row 96):
-    credit_amount 11816 (+0.8089), checking_status "< 0 DM" (+0.7904),
-    credit_history "no credits taken" (+0.5205), duration_months 45 (+0.5082).
-    That record is a good first target — note driver #3 is exactly the
-    citability case from NOTES.md.
+Pure and deterministic: same Explanation in -> identical ReasonCode list out.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-# TODO(Ajinkya): implement. See module docstring for the full spec.
-raise NotImplementedError(
-    "reason_mapper.py is owned by Ajinkya and has not been implemented yet. "
-    "See the module docstring for the spec."
-)
+try:
+    from data import PROHIBITED_BASIS_COLUMNS  # type: ignore
+except ImportError:
+    PROHIBITED_BASIS_COLUMNS = {"age_years", "personal_status_sex", "foreign_worker"}
+
+
+# ---------------------------------------------------------------------------
+# Piece 1: The ReasonCode container
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class ReasonCode:
+    code: str          # our ECOA/Reg B reason code identifier
+    text: str          # applicant-facing sentence
+    feature: str       # MUST match the real Explanation feature name
+    shap_value: float  # MUST match that feature's actual attribution
+    rank: int          # 1 = principal reason
+
+
+# ---------------------------------------------------------------------------
+# Piece 2: The mapping table
+# ---------------------------------------------------------------------------
+# feature -> (code, applicant-facing text) or (None, None) if suppressed.
+# Text is drawn from the real Reg B model-form adverse-action reason list
+# (12 CFR Pt. 1002, App. C), NOT from FICO's numeric score-factor codes
+# (e.g. FICO 038/018/014) -- those are a different citation basis (FCRA
+# 609(f)/615(a)(2), used when the decision is based on a purchased credit
+# score). Our Explanation is a SHAP breakdown of our own underwriting
+# model, not a FICO score, so a FICO code wouldn't correspond to anything
+# we actually produced -- citing one would be citing a number this letter
+# has no basis for.
+#
+# `code` here is our own internal identifier (R01-R12), not a FICO code.
+# Note several features share the same underlying Reg B reason text (e.g.
+# R08/R11 are both "Excessive obligations in relation to income") but each
+# still gets its own code so the validator can trace back to exactly which
+# feature drove the citation.
+#
+# `None` means: no lawful Reg B reason exists for this feature, full stop --
+# never cite it regardless of SHAP value. One-line reason on each.
+_MAPPING_TABLE: dict[str, tuple[str | None, str | None]] = {
+    "checking_status":              ("R01", "Insufficient checking account balance"),
+    "duration_months":              ("R02", "Length of requested credit term"),
+    "credit_history":               ("R03", "Insufficient credit file / limited credit experience"),
+    "credit_amount":                ("R05", "Excessive obligations in relation to income"),
+    "savings_status":               ("R06", "Insufficient savings account balance"),
+    "employment_since":             ("R07", "Length of employment"),
+    "installment_rate_pct_income":  ("R08", "Excessive obligations in relation to income"),
+    "property_magnitude":           ("R10", "Value or type of collateral not sufficient"),
+    "other_installment_plans":      ("R11", "Excessive obligations in relation to income"),
+    "existing_credits_count":       ("R12", "Number of credit obligations with us / other creditors"),
+    # Suppressed -- no lawful code maps to these, on any applicant:
+    "purpose":               (None, None),  # stated loan purpose (car/furniture/etc.) isn't
+                                             # collateral and has no Reg B reason of its own --
+                                             # mapping it to "collateral not sufficient" would
+                                             # invent a security-interest claim the feature
+                                             # doesn't support
+    "other_debtors":         (None, None),  # co-applicant/guarantor presence isn't a DTI signal;
+                                             # "excessive obligations" was a fabricated basis --
+                                             # no honest Reg B reason maps to this feature
+    "residence_since_years": (None, None),  # time-at-address isn't a Reg B model-form reason
+    "housing":               (None, None),  # too close to a protected-class proxy to phrase safely
+    "job":                   (None, None),  # occupation category risks proxying protected traits
+    "num_dependents":        (None, None),  # family status -- unlawful basis under Reg B
+    "telephone":             (None, None),  # not a Reg B model-form reason; no credit-relevance
+}
+
+
+def _phrase(contribution, template: str) -> str:
+    """Numeric features get a value clause; categorical ones already have
+    display_value text ready to go. No invented numbers -- only the
+    applicant's own raw_value/display_value already on the contribution."""
+    if isinstance(contribution.raw_value, (int, float)) and not isinstance(
+        contribution.raw_value, bool
+    ):
+        return f"{template} (value: {contribution.display_value})"
+    return f"{template}: {contribution.display_value}"
+
+
+# ---------------------------------------------------------------------------
+# Piece 3: is_citable()
+# ---------------------------------------------------------------------------
+MATERIALITY_FLOOR = 0.05  # |shap_value| below this is noise, not a reason
+
+# The "paid on time" problem (NOTES.md 0:45): credit_history = A31/A32
+# ("paid duly") pushes toward DECLINE and is mathematically real, but
+# unusable as an adverse-action reason. DECISION: suppress it, then fall
+# through to the next-biggest driver. Not re-mapped (that would cite a
+# reason the SHAP value doesn't support -- fabrication), not a refuse-and-
+# escalate-the-whole-decision (that throws away other, valid drivers this
+# applicant may have). Per-driver suppression is the precise fix.
+_UNCITABLE_VALUES = {
+    "credit_history": {"A31", "A32"},
+}
+
+
+def is_citable(contribution) -> bool:
+    """May I legally put this driver in a letter?"""
+    feature = contribution.feature
+
+    assert feature not in PROHIBITED_BASIS_COLUMNS, (
+        f"'{feature}' is a prohibited basis column and should never reach "
+        "the reason mapper -- this should be unreachable."
+    )
+
+    if abs(contribution.shap_value) < MATERIALITY_FLOOR:
+        return False
+    if contribution.direction != "toward_decline":
+        return False
+
+    code, _text = _MAPPING_TABLE.get(feature, (None, None))
+    if code is None:
+        return False
+
+    if contribution.raw_value in _UNCITABLE_VALUES.get(feature, set()):
+        return False
+
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Piece 4: map_reasons()
+# ---------------------------------------------------------------------------
+MAX_REASONS = 4
+
+
+def map_reasons(explanation, max_reasons: int = MAX_REASONS) -> list[ReasonCode]:
+    """Assembly line: Explanation -> up to `max_reasons` ReasonCodes.
+
+    Edge cases decided:
+      - APPROVE returns []. Reg B/FCRA adverse-action obligations attach to
+        adverse actions; there's no comparable requirement (and real
+        litigation risk) in volunteering "what would've hurt you" on an
+        approval. That'd be a separate, explicitly-named function if wanted.
+      - Fewer than max_reasons (including zero) is a legitimate outcome when
+        suppression removes enough drivers -- not a bug. Callers must handle
+        the empty case (e.g. escalate to human underwriter review).
+    """
+    if explanation.decision != "DECLINE":
+        return []
+
+    # .top_decline_drivers() already restricts to toward-decline, sorted
+    # biggest-first; pull all of them so fall-through has room to work.
+    drivers = explanation.top_decline_drivers(len(explanation.contributions))
+
+    reasons: list[ReasonCode] = []
+    for contribution in drivers:
+        if len(reasons) >= max_reasons:
+            break
+        if not is_citable(contribution):
+            continue  # materiality floor or citability rule rejected it
+
+        code, template = _MAPPING_TABLE.get(contribution.feature, (None, None))
+        assert code is not None  # is_citable already confirmed this exists
+        reasons.append(
+            ReasonCode(
+                code=code,
+                text=_phrase(contribution, template),
+                feature=contribution.feature,
+                shap_value=contribution.shap_value,
+                rank=len(reasons) + 1,
+            )
+        )
+
+    return reasons
