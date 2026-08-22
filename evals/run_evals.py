@@ -17,7 +17,11 @@ load_dotenv(ROOT / ".env")
 from deepeval.test_case import LLMTestCase  # noqa: E402
 
 from data import load_clean, split  # noqa: E402
-from metrics import TraceabilityMetric  # noqa: E402
+from metrics import (  # noqa: E402
+    TraceabilityMetric,
+    build_answer_relevancy_metric,
+    build_faithfulness_metric,
+)
 import graph as G  # noqa: E402
 
 
@@ -27,6 +31,13 @@ def main(judge: bool):
     cases = json.loads((ROOT / "evals" / "cases.json").read_text())
     app = G.build_graph()
     trace = TraceabilityMetric()
+
+    judges = []
+    if judge:
+        # Both must be handed the Gemini judge explicitly -- DeepEval's
+        # built-ins default to OpenAI and would fail on a missing key.
+        judges = [("relevancy", build_answer_relevancy_metric()),
+                  ("faithfulness", build_faithfulness_metric())]
 
     rows, lat = [], []
     for c in cases:
@@ -56,6 +67,17 @@ def main(judge: bool):
             },
         )
         score = trace.measure(tc)
+
+        judged = {}
+        for jname, jm in judges:
+            if not tc.actual_output:
+                continue
+            try:
+                jm.measure(tc)
+                judged[jname] = round(float(jm.score), 3)
+            except Exception as e:
+                judged[jname] = f"ERR {type(e).__name__}"
+
         rows.append({
             "case_id": c["case_id"],
             "type": c["adversarial_type"] or "standard",
@@ -68,6 +90,7 @@ def main(judge: bool):
             "traceability": score,
             "latency_s": round(dt, 2),
             "error": err,
+            "judged": judged,
             "text": (out.get("final_text") or "")[:400],
         })
 
@@ -93,6 +116,17 @@ def main(judge: bool):
     print(f"fell back to deterministic {fb}/{n}  ({fb/n:.0%})")
     print(f"latency p50 / p95         {statistics.median(lat):.2f}s / "
           f"{sorted(lat)[max(0,int(0.95*len(lat))-1)]:.2f}s")
+
+    if judge:
+        for jname in ("relevancy", "faithfulness"):
+            vals = [r["judged"].get(jname) for r in rows if isinstance(r["judged"].get(jname), float)]
+            errs = [r["case_id"] for r in rows
+                    if isinstance(r["judged"].get(jname), str)]
+            if vals:
+                print(f"{jname:<25} mean {statistics.mean(vals):.3f}  "
+                      f"min {min(vals):.3f}  n={len(vals)}")
+            if errs:
+                print(f"{jname:<25} errored on {errs}")
 
     viol = [v for r in rows for v in r["violations"]]
     if viol:

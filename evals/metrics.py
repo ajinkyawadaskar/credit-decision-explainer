@@ -60,7 +60,7 @@ from deepeval.test_case import LLMTestCase
 # ---------------------------------------------------------------------------
 def get_judge() -> GeminiModel:
     return GeminiModel(
-        model="gemini-2.0-flash",
+        model=os.environ["GEMINI_MODEL"],
         api_key=os.environ["GOOGLE_API_KEY"],
     )
 

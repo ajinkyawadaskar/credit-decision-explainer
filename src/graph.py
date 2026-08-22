@@ -79,7 +79,7 @@ def _load_llm():
     from langchain_google_genai import ChatGoogleGenerativeAI
 
     return ChatGoogleGenerativeAI(
-        model=os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"),
+        model=os.environ.get("GEMINI_MODEL"),
         temperature=0,  # compliance document, not copywriting
         google_api_key=os.environ["GOOGLE_API_KEY"],
     )

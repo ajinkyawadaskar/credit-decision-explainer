@@ -9,51 +9,71 @@
     "validation_passed": true,
     "violations": [],
     "traceability": 1.0,
-    "latency_s": 11.43,
+    "latency_s": 8.37,
     "error": null,
-    "text": "**Principal Reason(s) for Credit Decision:**\n\n* **Excessive obligations in relation to income:** 11816\n* **Insufficient checking account balance:** < 0 DM\n* **Insufficient credit file / limited credit experience:** no credits taken / all paid duly\n* **Length of requested credit term:** 45"
+    "judged": {
+      "relevancy": 1.0,
+      "faithfulness": "ERR ClientError"
+    },
+    "text": "Your credit application was declined for the following specific reasons:\n\n* **Excessive obligations relative to income:** Your obligations in relation to your income are excessive (11816).\n* **Insufficient checking account balance:** Your checking account balance is insufficient (< 0 DM).\n* **Insufficient credit file or limited credit experience:** You have an insufficient credit file or limited c"
   },
   {
     "case_id": "STD-02",
     "type": "standard",
     "decision": "DECLINE",
     "n_reasons": 4,
-    "attempts": 1,
+    "attempts": 2,
     "fallback": false,
     "validation_passed": true,
     "violations": [],
     "traceability": 1.0,
-    "latency_s": 14.64,
+    "latency_s": 62.31,
     "error": null,
-    "text": "**Principal Reason(s) for Adverse Action:**\n\n* **Insufficient checking account balance:** < 0 DM\n* **Length of requested credit term:** 45\n* **Value or type of collateral not sufficient:** unknown / no property\n* **Insufficient savings account balance:** < 100 DM"
+    "judged": {
+      "relevancy": "ERR ClientError",
+      "faithfulness": "ERR ClientError"
+    },
+    "text": "The principal reasons for this decision are as follows:\n\n* **Insufficient checking account balance:** Your checking account balance is insufficient (< 0 DM).\n* **Length of requested credit term:** The length of the requested credit term (45).\n* **Collateral:** The value or type of collateral is not sufficient (unknown / no property).\n* **Insufficient savings account balance:** Your savings account"
   },
   {
     "case_id": "STD-03",
     "type": "standard",
     "decision": "DECLINE",
     "n_reasons": 4,
-    "attempts": 1,
-    "fallback": false,
-    "validation_passed": true,
-    "violations": [],
+    "attempts": 2,
+    "fallback": true,
+    "validation_passed": false,
+    "violations": [
+      "No draft text produced (LLM call failed or unavailable)."
+    ],
     "traceability": 1.0,
-    "latency_s": 16.51,
+    "latency_s": 68.56,
     "error": null,
-    "text": "The reasons for this decision are as follows:\n\n* **Excessive obligations in relation to income:** 15857  \n* **Length of requested credit term:** 36  \n* **Insufficient checking account balance:** < 0 DM  \n* **Insufficient savings account balance:** < 100 DM"
+    "judged": {
+      "relevancy": "ERR ClientError",
+      "faithfulness": "ERR ClientError"
+    },
+    "text": "[R05] Excessive obligations in relation to income: 15857\n[R02] Length of requested credit term: 36\n[R01] Insufficient checking account balance: < 0 DM\n[R06] Insufficient savings account balance: < 100 DM"
   },
   {
     "case_id": "STD-04",
     "type": "standard",
     "decision": "DECLINE",
     "n_reasons": 4,
-    "attempts": 1,
-    "fallback": false,
-    "validation_passed": true,
-    "violations": [],
+    "attempts": 2,
+    "fallback": true,
+    "validation_passed": false,
+    "violations": [
+      "No draft text produced (LLM call failed or unavailable)."
+    ],
     "traceability": 1.0,
-    "latency_s": 8.71,
+    "latency_s": 68.6,
     "error": null,
-    "text": "**Reasons for Decision:**\n\n* **Insufficient credit file / limited credit experience:** No credits taken, or all previous credits were paid duly.\n* **Excessive obligations in relation to income:** 4221.\n* **Insufficient savings account balance:** < 100 DM.\n* **Length of requested credit term:** 30."
+    "judged": {
+      "relevancy": "ERR ClientError",
+      "faithfulness": "ERR ClientError"
+    },
+    "text": "[R03] Insufficient credit file / limited credit experience: no credits taken / all paid duly\n[R05] Excessive obligations in relation to income: 4221\n[R06] Insufficient savings account balance: < 100 DM\n[R02] Length of requested credit term: 30"
   },
   {
     "case_id": "STD-05",
@@ -65,8 +85,9 @@
     "validation_passed": null,
     "violations": [],
     "traceability": 1.0,
-    "latency_s": 0.03,
+    "latency_s": 0.04,
     "error": null,
+    "judged": {},
     "text": ""
   },
   {
@@ -74,42 +95,60 @@
     "type": "threshold_boundary",
     "decision": "DECLINE",
     "n_reasons": 4,
-    "attempts": 1,
-    "fallback": false,
-    "validation_passed": true,
-    "violations": [],
+    "attempts": 2,
+    "fallback": true,
+    "validation_passed": false,
+    "violations": [
+      "No draft text produced (LLM call failed or unavailable)."
+    ],
     "traceability": 1.0,
-    "latency_s": 33.67,
+    "latency_s": 69.37,
     "error": null,
-    "text": "**Principal Reasons for Credit Decision**\n\n* **Checking Account Balance:** Your checking account balance is insufficient (0 <= ... < 200 DM).\n* **Obligations Relative to Income:** Excessive obligations in relation to income (1175).\n* **Credit Term Length:** Length of requested credit term (16).\n* **Savings Account Balance:** Your savings account balance is insufficient (< 100 DM)."
+    "judged": {
+      "relevancy": "ERR ClientError",
+      "faithfulness": "ERR ClientError"
+    },
+    "text": "[R01] Insufficient checking account balance: 0 <= ... < 200 DM\n[R05] Excessive obligations in relation to income: 1175\n[R02] Length of requested credit term: 16\n[R06] Insufficient savings account balance: < 100 DM"
   },
   {
     "case_id": "ADV-02",
     "type": "insufficient_drivers",
     "decision": "DECLINE",
     "n_reasons": 4,
-    "attempts": 1,
-    "fallback": false,
-    "validation_passed": true,
-    "violations": [],
+    "attempts": 2,
+    "fallback": true,
+    "validation_passed": false,
+    "violations": [
+      "No draft text produced (LLM call failed or unavailable)."
+    ],
     "traceability": 1.0,
-    "latency_s": 24.34,
+    "latency_s": 68.35,
     "error": null,
-    "text": "**Reason(s) for Adverse Action:**\n\n* **Excessive obligations in relation to income** (Codes: 754, 4)\n* **Insufficient checking account balance** (0 <= ... < 200 DM)\n* **Value or type of collateral not sufficient** (building society savings / life insurance)"
+    "judged": {
+      "relevancy": "ERR ClientError",
+      "faithfulness": "ERR ClientError"
+    },
+    "text": "[R05] Excessive obligations in relation to income: 754\n[R01] Insufficient checking account balance: 0 <= ... < 200 DM\n[R08] Excessive obligations in relation to income: 4\n[R10] Value or type of collateral not sufficient: building society savings / life insurance"
   },
   {
     "case_id": "ADV-03",
     "type": "uncitable_driver",
     "decision": "DECLINE",
     "n_reasons": 4,
-    "attempts": 1,
-    "fallback": false,
-    "validation_passed": true,
-    "violations": [],
+    "attempts": 2,
+    "fallback": true,
+    "validation_passed": false,
+    "violations": [
+      "No draft text produced (LLM call failed or unavailable)."
+    ],
     "traceability": 1.0,
-    "latency_s": 41.66,
+    "latency_s": 68.48,
     "error": null,
-    "text": "**Principal Reasons for Credit Decision:**\n\n* **Insufficient Checking Account Balance:** Your checking account balance is insufficient (< 0 DM).\n* **Insufficient Collateral:** The value or type of collateral provided is not sufficient (unknown / no property).\n* **Length of Credit Term:** The length of the requested credit term (18).\n* **Obligations Relative to Income:** Your obligations are excess"
+    "judged": {
+      "relevancy": "ERR ClientError",
+      "faithfulness": "ERR ClientError"
+    },
+    "text": "[R01] Insufficient checking account balance: < 0 DM\n[R10] Value or type of collateral not sufficient: unknown / no property\n[R02] Length of requested credit term: 18\n[R08] Excessive obligations in relation to income: 4"
   },
   {
     "case_id": "ADV-04",
@@ -121,8 +160,9 @@
     "validation_passed": null,
     "violations": [],
     "traceability": 1.0,
-    "latency_s": 0.03,
+    "latency_s": 0.05,
     "error": null,
+    "judged": {},
     "text": ""
   },
   {
@@ -130,13 +170,19 @@
     "type": "flat_attribution",
     "decision": "DECLINE",
     "n_reasons": 4,
-    "attempts": 1,
-    "fallback": false,
-    "validation_passed": true,
-    "violations": [],
+    "attempts": 2,
+    "fallback": true,
+    "validation_passed": false,
+    "violations": [
+      "No draft text produced (LLM call failed or unavailable)."
+    ],
     "traceability": 1.0,
-    "latency_s": 7.65,
+    "latency_s": 68.25,
     "error": null,
-    "text": "**Reasons for Decision**\n\n* **Collateral:** The value or type of collateral provided is not sufficient (unknown / no property).\n* **Obligations and Income:** Excessive obligations in relation to income (4297).\n* **Savings Account:** Insufficient savings account balance (< 100 DM).\n* **Checking Account:** Insufficient checking account balance (0 <= ... < 200 DM)."
+    "judged": {
+      "relevancy": "ERR ClientError",
+      "faithfulness": "ERR ClientError"
+    },
+    "text": "[R10] Value or type of collateral not sufficient: unknown / no property\n[R05] Excessive obligations in relation to income: 4297\n[R06] Insufficient savings account balance: < 100 DM\n[R01] Insufficient checking account balance: 0 <= ... < 200 DM"
   }
 ]

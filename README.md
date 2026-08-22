@@ -106,8 +106,8 @@ Measured over the 10 labelled cases (5 adversarial), Gemini 3.6 Flash:
 | Fallback to deterministic text | 0 / 10 (0%) |
 | Reasons lost to prose merging | **1 / 8 declines** |
 | p50 / p95 latency | **13.0s / 33.7s** |
-| Answer relevancy (Gemini judge) | `___` |
-| Faithfulness (Gemini judge) | `___` |
+| Answer relevancy (Gemini judge) | 1.00 on n=1 — **quota-blocked** |
+| Faithfulness (Gemini judge) | **not measured — quota-blocked** |
 
 Every generated reason traced to a real adverse SHAP driver for that applicant,
 including ADV-03, where `credit_history` is suppressed as uncitable and the
@@ -128,6 +128,20 @@ model never reintroduced it.
    share the same text into one bullet, emitting 3 for 4 selected reasons.
    Every reason shown was true; one simply vanished. Under Reg B, losing a
    principal reason is arguably worse than adding a spurious one.
+
+**4. The two LLM-judged built-ins are not meaningfully measured.** The Gemini
+free tier allows 20 `generateContent` requests; the graph's own render call plus
+two judged metrics per case exhausts it after roughly one case. Answer relevancy
+returned 1.00 on a single case — a sample of one is not a result — and
+faithfulness never completed. Both are wired correctly and fail on quota, not on
+code. This is a billing limit, not a finding.
+
+That run also demonstrated the telemetry problem worth fixing: with the judges
+enabled, **5 of 8 declines fell back to deterministic text** — not because the
+validator rejected anything, but because the graph's own LLM calls were being
+rate-limited. `used_fallback=True` currently cannot distinguish "the safety net
+caught a hallucination" from "the API is throttled." The clean 0% fallback
+figure above comes from the run without judges, where no rate limiting occurred.
 
 **Latency is too high for a synchronous credit decision** at p95 33.7s. The
 deterministic path is ~30ms; effectively all of it is the LLM. Serving this for

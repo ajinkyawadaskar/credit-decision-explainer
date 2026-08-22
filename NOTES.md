@@ -388,3 +388,38 @@ installment-rate bucket. Neither is a code.
 **Latency is not viable synchronously.** p95 33.7s, of which the deterministic
 path is ~30ms. Serving this for real means rendering asynchronously and
 returning the deterministic notice immediately.
+## Judge metrics blocked by Gemini free-tier quota — and the fallback metric proved ambiguous
+
+Running `run_evals.py --judge` failed almost everywhere with `ClientError`.
+Actual cause, once surfaced:
+
+    429 RESOURCE_EXHAUSTED - Quota exceeded for metric:
+    generativelanguage.googleapis.com/generate_content_free_tier_requests,
+    limit: 20, model: gemini-3.6-flash
+
+The free tier allows **20 requests**. One graph render plus two LLM-judged
+metrics per case burns that in about one case. Answer relevancy scored 1.00 on
+n=1 (not a result); faithfulness never completed. Both are wired correctly —
+this is a billing limit, not a code defect. Fix is billing, a smaller judge
+model, or accepting that the deterministic metric is the one that matters.
+
+### The accidental proof of an earlier recommendation
+
+Earlier today I argued that `render()`'s bare `except Exception: draft_text =
+None` makes `used_fallback` ambiguous, because a config error and a caught
+hallucination produce identical telemetry. This run demonstrated it with real
+data.
+
+With judges enabled, **5 of 8 declines fell back** and latency went from ~13s to
+~68s per case. Read naively, that looks like "the validator rejected 5 of 8
+generations" — an alarming quality signal. The actual cause was 429 throttling
+on the graph's own render calls. The validator rejected nothing.
+
+Two runs, same code, same cases: 0% fallback and 62% fallback, differing only in
+whether an unrelated API quota was exhausted. A metric that swings that far on
+infrastructure state cannot be reported as a safety measurement without
+recording *why* each fallback happened.
+
+The clean numbers in the README come from the run without judges, where no
+throttling occurred. Noting that explicitly so nobody later "reproduces" the
+worse figure and thinks the system regressed.
