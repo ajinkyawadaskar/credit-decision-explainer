@@ -254,3 +254,39 @@ had nothing but the original stub.
 Lesson: graceful degradation is right for deploys and dangerous during
 development, and "commit after each working milestone" exists precisely so a
 stale-copy overwrite costs minutes instead of an afternoon.
+## metrics.py landed — and my eval harness was silently framing it
+
+TraceabilityMetric is deterministic set membership, threshold 1.0 (any
+untraceable reason fails the case), and it separates two distinct failure
+modes in `self.reason`: **phantom** features (named but absent from the
+explanation entirely) vs **wrong-direction** citations (feature exists but
+argued toward approval). That distinction matters — citing a feature that
+helped the applicant as a denial reason is arguably worse than naming one that
+doesn't exist, because it's a lie about real evidence.
+
+It also handles the trap flagged in the spec: zero reasons on a DECLINE scores
+**0.0, not a vacuous 1.0**. An agent that says nothing must not win.
+
+Verified: 10/10 honest cases score 1.00; all five deliberately-bad inputs
+(phantom feature, prohibited-basis feature, wrong-direction, empty-on-decline,
+mixed) correctly fail.
+
+### The bug this surfaced was mine
+
+`evals/dataset.py` stored `top_decline_drivers(6)` as each case's ground truth.
+But reason_mapper suppresses 7 of 17 features, so to fill four slots it
+routinely reaches deeper — **rank 8** at worst. Four test records
+(14, 133, 154, 168) would have had a perfectly honest reason scored as a
+hallucination.
+
+None of the 10 current cases happened to hit it, so the harness looked green.
+It would have started lying the moment we labeled more cases.
+
+This is the worst class of eval bug: not a metric that misses a failure, but a
+metric that **invents one**. A false hallucination report makes you distrust a
+system that is actually working, and the natural response — loosening the
+threshold below 1.0 — would have destroyed the project's core guarantee to fix
+a problem that never existed.
+
+Fixed by storing all adverse drivers rather than a top-N slice. Re-verified:
+0 false positives across all 46 declines in the test set.

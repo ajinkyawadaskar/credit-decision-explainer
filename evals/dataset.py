@@ -74,10 +74,14 @@ def _case_from_row(explainer, X_test, y_test, idx, case_id, category,
         applicant={k: (v.item() if hasattr(v, "item") else str(v))
                    for k, v in record.iloc[0].to_dict().items()},
         shap_features_available=sorted(e.feature_names()),
+        # ALL adverse drivers, not a top-N slice. This is the metric's ground
+        # truth for "is this citation legitimate" -- truncating it makes an
+        # honest reason drawn from a deeper driver look like a hallucination.
+        # reason_mapper suppresses 7 features, so it reaches rank 8 in practice.
         top_decline_drivers=[
             {"feature": c.feature, "display_value": c.display_value,
              "shap_value": round(c.shap_value, 4)}
-            for c in e.top_decline_drivers(6)
+            for c in e.top_decline_drivers(len(e.contributions))
         ],
         n_positive_drivers=len(positives),
         why_selected=why,

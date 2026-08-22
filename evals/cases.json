@@ -75,6 +75,41 @@
         "feature": "savings_status",
         "display_value": "< 100 DM",
         "shap_value": 0.3845
+      },
+      {
+        "feature": "existing_credits_count",
+        "display_value": "2",
+        "shap_value": 0.1632
+      },
+      {
+        "feature": "purpose",
+        "display_value": "business",
+        "shap_value": 0.0514
+      },
+      {
+        "feature": "job",
+        "display_value": "skilled employee / official",
+        "shap_value": 0.0405
+      },
+      {
+        "feature": "residence_since_years",
+        "display_value": "4",
+        "shap_value": 0.0394
+      },
+      {
+        "feature": "other_debtors",
+        "display_value": "none",
+        "shap_value": 0.0331
+      },
+      {
+        "feature": "employment_since",
+        "display_value": ">= 7 years",
+        "shap_value": 0.0114
+      },
+      {
+        "feature": "telephone",
+        "display_value": "none",
+        "shap_value": 0.0057
       }
     ],
     "n_positive_drivers": 13,
@@ -160,6 +195,26 @@
         "feature": "credit_history",
         "display_value": "existing credits paid duly till now",
         "shap_value": 0.1477
+      },
+      {
+        "feature": "job",
+        "display_value": "skilled employee / official",
+        "shap_value": 0.0623
+      },
+      {
+        "feature": "other_debtors",
+        "display_value": "none",
+        "shap_value": 0.0401
+      },
+      {
+        "feature": "num_dependents",
+        "display_value": "1",
+        "shap_value": 0.0168
+      },
+      {
+        "feature": "employment_since",
+        "display_value": "1 <= ... < 4 years",
+        "shap_value": 0.0034
       }
     ],
     "n_positive_drivers": 10,
@@ -245,6 +300,26 @@
         "feature": "other_debtors",
         "display_value": "co-applicant",
         "shap_value": 0.1187
+      },
+      {
+        "feature": "employment_since",
+        "display_value": "unemployed",
+        "shap_value": 0.1181
+      },
+      {
+        "feature": "property_magnitude",
+        "display_value": "car or other",
+        "shap_value": 0.0525
+      },
+      {
+        "feature": "telephone",
+        "display_value": "none",
+        "shap_value": 0.0073
+      },
+      {
+        "feature": "num_dependents",
+        "display_value": "1",
+        "shap_value": 0.007
       }
     ],
     "n_positive_drivers": 10,
@@ -330,6 +405,21 @@
         "feature": "existing_credits_count",
         "display_value": "2",
         "shap_value": 0.1236
+      },
+      {
+        "feature": "other_debtors",
+        "display_value": "none",
+        "shap_value": 0.0294
+      },
+      {
+        "feature": "telephone",
+        "display_value": "none",
+        "shap_value": 0.0107
+      },
+      {
+        "feature": "num_dependents",
+        "display_value": "1",
+        "shap_value": 0.0006
       }
     ],
     "n_positive_drivers": 9,
@@ -500,6 +590,26 @@
         "feature": "employment_since",
         "display_value": "unemployed",
         "shap_value": 0.1738
+      },
+      {
+        "feature": "property_magnitude",
+        "display_value": "car or other",
+        "shap_value": 0.1474
+      },
+      {
+        "feature": "existing_credits_count",
+        "display_value": "3",
+        "shap_value": 0.0615
+      },
+      {
+        "feature": "residence_since_years",
+        "display_value": "3",
+        "shap_value": 0.0334
+      },
+      {
+        "feature": "other_debtors",
+        "display_value": "none",
+        "shap_value": 0.0183
       }
     ],
     "n_positive_drivers": 10,
@@ -585,6 +695,16 @@
         "feature": "property_magnitude",
         "display_value": "building society savings / life insurance",
         "shap_value": 0.0534
+      },
+      {
+        "feature": "other_debtors",
+        "display_value": "none",
+        "shap_value": 0.0278
+      },
+      {
+        "feature": "job",
+        "display_value": "skilled employee / official",
+        "shap_value": 0.007
       }
     ],
     "n_positive_drivers": 8,
@@ -670,6 +790,31 @@
         "feature": "installment_rate_pct_income",
         "display_value": "4",
         "shap_value": 0.2404
+      },
+      {
+        "feature": "savings_status",
+        "display_value": "< 100 DM",
+        "shap_value": 0.193
+      },
+      {
+        "feature": "telephone",
+        "display_value": "none",
+        "shap_value": 0.1378
+      },
+      {
+        "feature": "existing_credits_count",
+        "display_value": "2",
+        "shap_value": 0.1087
+      },
+      {
+        "feature": "other_debtors",
+        "display_value": "none",
+        "shap_value": 0.0363
+      },
+      {
+        "feature": "num_dependents",
+        "display_value": "2",
+        "shap_value": 0.0326
       }
     ],
     "n_positive_drivers": 11,
@@ -755,6 +900,16 @@
         "feature": "residence_since_years",
         "display_value": "2",
         "shap_value": 0.0768
+      },
+      {
+        "feature": "installment_rate_pct_income",
+        "display_value": "3",
+        "shap_value": 0.0471
+      },
+      {
+        "feature": "other_debtors",
+        "display_value": "none",
+        "shap_value": 0.0219
       }
     ],
     "n_positive_drivers": 8,
@@ -840,6 +995,36 @@
         "feature": "installment_rate_pct_income",
         "display_value": "4",
         "shap_value": 0.1516
+      },
+      {
+        "feature": "duration_months",
+        "display_value": "18",
+        "shap_value": 0.0857
+      },
+      {
+        "feature": "residence_since_years",
+        "display_value": "3",
+        "shap_value": 0.0582
+      },
+      {
+        "feature": "other_debtors",
+        "display_value": "none",
+        "shap_value": 0.0201
+      },
+      {
+        "feature": "job",
+        "display_value": "management / self-employed / highly qualified",
+        "shap_value": 0.0112
+      },
+      {
+        "feature": "employment_since",
+        "display_value": ">= 7 years",
+        "shap_value": 0.0086
+      },
+      {
+        "feature": "num_dependents",
+        "display_value": "1",
+        "shap_value": 0.0011
       }
     ],
     "n_positive_drivers": 12,
